@@ -51,13 +51,14 @@ class WindowSet:
                          self.x_e2e, self.y_e2e, self.psi_e2e, self.flight_ids)
 
 
-def signature(flight_ids: list) -> dict:
+def signature(flight_ids: list, window: int = config.WINDOW_SCANS) -> dict:
     keys = ("SCAN_PERIOD", "RADAR_SIGMA_R", "RADAR_SIGMA_AZ_DEG", "RADAR_SIGMA_EL_DEG", "RADAR_PD",
             "RADAR_DIST_RANGE", "RADAR_BELOW_MIN_Z", "HORIZON_SCANS", "WARMUP_SCANS",
             "FILTER_SIGMA_A_CV", "FILTER_SIGMA_J_CA", "FILTER_SIGMA_A_CT", "FILTER_SIGMA_W_CT",
             "FILTER_SIGMA_A_Z", "IMM_MODELS", "IMM_P_STAY", "IMM_MU0", "INIT_SIGMA_A", "INIT_SIGMA_W",
-            "WINDOW_SCANS", "RANDOM_SEED")
+            "RANDOM_SEED")
     sig = {key: getattr(config, key) for key in keys}
+    sig["WINDOW_SCANS"] = window
     sig = json.loads(json.dumps(sig))  # кортежи -> списки, как после чтения из файла
     sig["FEATURES_VERSION"] = FEATURES_VERSION
     sig["tracks"] = hashlib.sha256("\n".join(flight_ids).encode("utf-8")).hexdigest()[:16]
@@ -65,7 +66,7 @@ def signature(flight_ids: list) -> dict:
     return sig
 
 
-def build(tracks: list, imm: IMM = None) -> tuple:
+def build(tracks: list, imm: IMM = None, window: int = config.WINDOW_SCANS) -> tuple:
     """Окна по списку треков. Возвращает (WindowSet, список RadarTrack, список FilterRun)."""
     imm = imm or IMM()
     parts = {name: [] for name in _FIELDS}
@@ -73,8 +74,8 @@ def build(tracks: list, imm: IMM = None) -> tuple:
     for i, tr in enumerate(tracks):
         rt = observe(tr)
         run = imm.run(rt)
-        w = build_windows(rt, run)
-        e = build_windows_e2e(rt, w["k"])
+        w = build_windows(rt, run, window=window)
+        e = build_windows_e2e(rt, w["k"], window=window)
         rts.append(rt)
         runs.append(run)
         for name, val in (("x", w["x"]), ("y", w["y"]), ("k", w["k"]), ("psi", w["psi"]),
@@ -85,11 +86,12 @@ def build(tracks: list, imm: IMM = None) -> tuple:
     return ws, rts, runs
 
 
-def load_or_build(name: str, tracks: list, cache_dir: Path, rebuild: bool = False) -> WindowSet:
+def load_or_build(name: str, tracks: list, cache_dir: Path, rebuild: bool = False,
+                  window: int = config.WINDOW_SCANS) -> WindowSet:
     """Окна из кэша, если параметры совпадают, иначе сборка и запись кэша."""
     log = get_logger()
     flight_ids = [tr.flight_id for tr in tracks]
-    sig = signature(flight_ids)
+    sig = signature(flight_ids, window)
     npz, meta = cache_dir / f"{name}.npz", cache_dir / f"{name}.json"
     if not rebuild and npz.exists() and meta.exists():
         if json.loads(meta.read_text(encoding="utf-8")) == sig:
@@ -98,7 +100,7 @@ def load_or_build(name: str, tracks: list, cache_dir: Path, rebuild: bool = Fals
             return WindowSet(*(data[f] for f in _FIELDS), flight_ids)
         log.info("Окна %s: параметры изменились, кэш пересобирается", name)
     log.info("Окна %s: прогон РЛС и IMM по %d трассам...", name, len(tracks))
-    ws, _, _ = build(tracks)
+    ws, _, _ = build(tracks, window=window)
     cache_dir.mkdir(parents=True, exist_ok=True)
     np.savez(npz, **{f: getattr(ws, f) for f in _FIELDS})
     meta.write_text(json.dumps(sig, ensure_ascii=False, indent=1), encoding="utf-8")

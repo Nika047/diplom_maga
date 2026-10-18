@@ -33,7 +33,6 @@ import torch  # noqa: E402
 
 import config  # noqa: E402
 from common.logging_setup import setup_logging  # noqa: E402
-from common.rng import make_rng  # noqa: E402
 from data import splits as splits_mod  # noqa: E402
 from data.windows import N_FEATURES_E2E, apply_correction, apply_e2e, build_windows, build_windows_e2e  # noqa: E402
 from eval import metrics  # noqa: E402
@@ -43,8 +42,8 @@ from filters.imm import IMM  # noqa: E402
 from models import CORRECTORS, build_corrector  # noqa: E402
 from radar.model import observe  # noqa: E402
 from training import dataset  # noqa: E402
-from training.trainer import overfit_one_batch, pick_device, predict, train  # noqa: E402
-from viz import train_plots  # noqa: E402
+from training.experiment import run_experiment  # noqa: E402
+from training.trainer import pick_device  # noqa: E402
 
 # Настройки, зависящие от устройства (одинаковые для всех моделей)
 FULL = {"batch": 512, "epochs": 80, "lr": 1e-3, "patience": 10, "weight_decay": 1e-4}
@@ -120,46 +119,6 @@ def self_tests(summary: StageSummary, val_tracks: list) -> None:
     summary.check("Модели: формы, нулевой выход до обучения, градиенты", ok, "; ".join(lines))
 
 
-def run_experiment(label, corrector, mode, ws_tr, ws_val, params, device, summary, log, smoke) -> dict:
-    tr, va = ws_tr.view(mode), ws_val.view(mode)
-    norm = dataset.Normalizer.fit(tr)
-    x_tr, y_tr, x_val, y_val = norm.x(tr.x), norm.y(tr.y), norm.x(va.x), norm.y(va.y)
-
-    rng = make_rng("training")
-    batch_idx = rng.choice(len(x_tr), size=min(256, len(x_tr)), replace=False)
-    torch.manual_seed(config.RANDOM_SEED)
-    model = build_corrector(corrector, x_tr.shape[-1], config.HORIZON_SCANS)
-    first, last = overfit_one_batch(model, x_tr[batch_idx], y_tr[batch_idx], config.OVERFIT_STEPS, 3e-3, device)
-    summary.check(f"{label}: overfit one batch", last < config.OVERFIT_TARGET * first,
-                  f"loss {first:.4f} -> {last:.4f}")
-
-    log.info("Обучение %s", label)
-    rng = make_rng("training")
-    torch.manual_seed(config.RANDOM_SEED)
-    model = build_corrector(corrector, x_tr.shape[-1], config.HORIZON_SCANS)
-    t0 = time.time()
-    history, _ = train(model, x_tr, y_tr, x_val, y_val, params, device, rng)
-    train_s = time.time() - t0
-    ep = history["epochs"]
-    summary.check(f"{label}: модель обучилась (val ниже начального)",
-                  history["best_val_loss"] < history["val_loss_initial"],
-                  f"val loss {history['val_loss_initial']:.4f} -> {history['best_val_loss']:.4f}")
-    summary.check(f"{label}: train loss падает", len(ep) >= 2 and ep[-1]["train_loss"] < ep[0]["train_loss"],
-                  f"{ep[0]['train_loss']:.4f} -> {ep[-1]['train_loss']:.4f} за {len(ep)} эпох")
-
-    t0 = time.time()
-    out = norm.y_inv(predict(model, x_val, device))
-    infer_us = (time.time() - t0) / max(len(x_val), 1) * 1e6
-    slug = label.replace("+", "_").replace(" ", "_").replace("(", "").replace(")", "")
-    ART.mkdir(parents=True, exist_ok=True)
-    torch.save({"state_dict": model.state_dict(), "normalizer": norm.as_dict(), "corrector": corrector,
-                "mode": mode, "smoke": smoke}, ART / f"{slug}{'_smoke' if smoke else ''}.pt")
-    history.update({"train_seconds": train_s, "infer_us_per_sample": infer_us, "device": str(device),
-                    "params": params, "n_params": sum(p.numel() for p in model.parameters())})
-    train_plots.plot_history(history, OUT_DIR / f"loss_{slug}.png", f"Обучение {label}")
-    return {"pred": out, "history": history}
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Этап 3: сравнение архитектур")
     parser.add_argument("--smoke", action="store_true", help="подвыборка и 2 эпохи (проверка конвейера)")
@@ -207,7 +166,7 @@ def main() -> int:
     results = {}
     for label, corrector, mode in experiments:
         results[label] = run_experiment(label, corrector, mode, ws_tr, ws_val, params, device, summary, log,
-                                        args.smoke)
+                                        args.smoke, OUT_DIR, ART)
 
     log.info("4. Сравнение на val")
     forecasts = {"IMM": []}

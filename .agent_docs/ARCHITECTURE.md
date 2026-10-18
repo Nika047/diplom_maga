@@ -72,6 +72,8 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `viz/train_plots.py` | Кривые loss | есть |
 | `run_stage2.py` | Этап 2, ключи `--smoke` и `--rebuild` | есть |
 | `run_stage3.py` | Этап 3: все корректоры и модели без IMM; `--smoke`, `--rebuild`, `--only GRU,Mamba` | есть |
+| `training/experiment.py` | Один эксперимент: нормализация, overfit, обучение, прогноз на val, веса, кривая loss. Общий для `run_stage3*.py` | есть |
+| `run_stage3_window.py` | Дополнение этапа 3: те же модели на окнах 20 / 60 / 100 обзоров, оценка на общих обзорах; `--windows`, `--only`, `--smoke` | есть |
 | `tuning/` | Этап 4 | план |
 | `predict.py` | Итоговая программа | план |
 
@@ -125,8 +127,10 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 
 **Кэш этапов 2-3** (`cache/stage2/`, общий): `train.npz`, `val.npz`,
 `train_smoke.npz` (поля для гибрида и для моделей без IMM, `FEATURES_VERSION = 2`)
-+ `*.json` с подписью - параметры РЛС, IMM, окна, `FEATURES_VERSION`, хеш списка
-трасс. При несовпадении подписи кэш пересобирается сам. **Изменил признаки в
++ `*.json` с подписью - параметры РЛС, IMM, длина окна, `FEATURES_VERSION`, хеш
+списка трасс. Окна другой длины - `train_w60.npz`, `train_w100.npz` и т.п. (до
+0,8 ГБ каждый). Длина окна передаётся параметром `window` в `dataset.build`,
+`load_or_build`, `build_corrector`; по умолчанию `config.WINDOW_SCANS`. При несовпадении подписи кэш пересобирается сам. **Изменил признаки в
 `data/windows.py` - увеличь `training/dataset.FEATURES_VERSION`**, иначе подпись
 не заметит изменения.
 

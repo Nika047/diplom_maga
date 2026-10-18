@@ -9,6 +9,7 @@
 только из отметок, выход - смещение от последней отметки.
 """
 
+import config
 from models.gru import GRUCorrector
 from models.lstm import LSTMCorrector
 from models.mamba import MambaCorrector
@@ -18,5 +19,8 @@ CORRECTORS = {"GRU": GRUCorrector, "LSTM": LSTMCorrector, "Transformer": Transfo
               "Mamba": MambaCorrector}
 
 
-def build_corrector(name: str, n_features: int, horizon: int):
+def build_corrector(name: str, n_features: int, horizon: int, window: int = config.WINDOW_SCANS):
+    """window нужен только Transformer (размер позиционного кодирования)."""
+    if name == "Transformer":
+        return CORRECTORS[name](n_features, horizon, window=window)
     return CORRECTORS[name](n_features, horizon)
