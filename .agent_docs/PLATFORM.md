@@ -93,7 +93,14 @@ python -m venv .venv
 Get-Content results\stage0\summary.txt -Encoding UTF8
 ```
 
-`run_stage0.py` возвращает код 0, если все проверки PASS, иначе 1.
+```powershell
+.venv\Scripts\python.exe run_stage1.py
+Get-Content results\stage1\summary.txt -Encoding UTF8
+```
+
+`run_stageN.py` возвращает код 0, если все проверки PASS, иначе 1. Этап 1 читает
+кэш этапа 0 и без него завершается с FAIL. На рабочем ПК идёт около 25 с, из них
+IMM - около 16 с на 9684 обзора.
 
 Длительность на рабочем ПК (журнал 18.10.2026): около 2 минут. Чтение логов -
 2,4 с, калибровка с пробными генерациями и генерация синтетики - около 110 с
