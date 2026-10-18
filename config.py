@@ -31,11 +31,9 @@ RNG_STREAMS = ("splits", "synth_train", "synth_analysis", "check_determinism", "
 # ============================================================================
 
 # Тип аппарата = префикс имени файла до даты: "<тип>-ГГГГ-ММ-ДД-ЧЧММСС.csv"
-FIXED_WING_AIRCRAFT = ("Dolphin", "Z84", "T1 VTOL", "S1100", "Mini Talon", "Chernika")
+FIXED_WING_AIRCRAFT = ("Dolphin", "Z84", "T1 VTOL", "S1100", "Mini Talon", "Chernika", "GoDiscover")
 MULTIROTOR_AIRCRAFT = ("F450", "Chimera7")
 SIM_AIRCRAFT = ("Sim",)
-# Тип не подтверждён пользователем; по режимам ArduPlane похож на самолёт.
-UNCONFIRMED_AIRCRAFT = ("GoDiscover",)
 
 # Какие типы идут в реальные выборки train / val / test
 USED_AIRCRAFT = FIXED_WING_AIRCRAFT
@@ -124,7 +122,7 @@ SYNTH_COUNT_TRAIN = {"straight": 60, "turn": 200, "zigzag": 150, "loiter": 120,
                      "u_turn": 120, "climb_turn": 100, "mixed": 400}
 SYNTH_COUNT_ANALYSIS = {name: 10 for name in SYNTH_SCENARIOS}
 SYNTH_STRAIGHT_S = (20.0, 90.0)   # с, длительность прямых участков
-SYNTH_TURN_ANGLE_DEG = (30.0, 270.0)
+SYNTH_MAX_TURN_S = 180.0          # с, предел длительности маневра, взятого из логов (облёты GoDiscover длиннее)
 SYNTH_MIXED_SEGMENTS = (4, 10)
 
 # ============================================================================

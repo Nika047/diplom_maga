@@ -6,7 +6,9 @@
   - скорость V в [v_min, v_max], продольное ускорение не больше A_MAX;
   - скорость разворота не больше min(g * tan(phi_max) / V, предел по логам)
     (координированный разворот), вход в крен - инерционное звено с постоянной TAU_ROLL;
-  - скорость и |w| разворотов выбираются из распределений логов, а не равномерно;
+  - скорость выбирается из распределения логов, а развороты - целыми маневрами логов
+    (скорость, |w| и длительность вместе), а не равномерно и не по отдельным точкам:
+    иначе долгие облёты (GoDiscover) подменялись бы короткими резкими разворотами;
   - вертикальная скорость не больше vz_max, инерционное звено TAU_VZ;
   - курс от севера по часовой: x += V sin(psi) dt, y += V cos(psi) dt.
 Интегрирование с шагом SYNTH_DT_SIM, выдача с шагом SYNTH_DT_OUT. Время по
@@ -25,6 +27,7 @@ from dataclasses import dataclass, asdict
 import numpy as np
 
 import config
+from data.phases import PHASE_CODE
 from data.track import Track
 
 
@@ -37,7 +40,7 @@ class Limits:
     omega_cap_deg: float     # верхний предел скорости разворота по логам, град/с
     speed_q: list            # квантильная функция скорости (равномерная сетка вероятностей)
     omega_q: list            # квантильная функция |w| на маневрах
-    turn_pairs: list         # пары (скорость, |w|) точек маневра логов, по возрастанию |w|
+    maneuvers: list          # маневры логов [скорость, медиана |w|, длительность], по возрастанию |w|
     # Измеренная по 2-секундным отметкам |w| ниже заданной (инерция крена, сглаживание
     # курса). Множитель подбирается так, чтобы совпали именно измеренные распределения.
     omega_scale: float = 1.0
@@ -51,18 +54,18 @@ class Limits:
         grid = np.linspace(0.0, 1.0, len(self.speed_q))
         return float(np.interp(rng.uniform(), grid, self.speed_q))
 
-    def sample_turn(self, rng: np.random.Generator, u_range=(0.0, 1.0)) -> tuple:
+    def sample_maneuver(self, rng: np.random.Generator, u_range=(0.0, 1.0)) -> tuple:
         """
-        Пара (скорость, |w|) реальной точки маневра; u_range - диапазон по рангу |w|.
+        Реальный маневр логов: (скорость, заданная |w|, длительность); u_range - по рангу |w|.
 
-        Скорость и |w| в логах связаны (резкие развороты - на малой скорости), поэтому
-        выбираются вместе, а не независимо.
+        Скорость, |w| и длительность в логах связаны (резкие развороты - короткие и на
+        малой скорости), поэтому берутся вместе.
         """
-        n = len(self.turn_pairs)
+        n = len(self.maneuvers)
         i = min(int(rng.uniform(*u_range) * n), n - 1)
-        v, w = self.turn_pairs[i]
+        v, w, d = self.maneuvers[i]
         v = float(np.clip(v, self.v_min, self.v_max))
-        return v, float(min(w * self.omega_scale, self.omega_max_deg(v)))
+        return v, float(min(w * self.omega_scale, self.omega_max_deg(v))), float(d)
 
     def as_dict(self) -> dict:
         return asdict(self)
@@ -84,23 +87,31 @@ def calibrate_limits(tracks: list) -> tuple:
     квантилем калибровки), поэтому синтетика повторяет распределения логов, а не
     равномерное.
     """
-    speeds, phis, omegas, turn_v, vzs = [], [], [], [], []
+    speeds, phis, omegas, vzs, maneuvers = [], [], [], [], []
+    in_turn = (PHASE_CODE["entry"], PHASE_CODE["turn"])
     for tr in tracks:
         moving = tr.speed >= config.PHASE_V_MIN
         speeds.append(tr.speed[moving])
         turning = moving & ~np.isnan(tr.omega) & (np.abs(np.nan_to_num(tr.omega)) >= config.OMEGA_TURN_ON)
         w = np.abs(tr.omega[turning])
         omegas.append(w)
-        turn_v.append(tr.speed[turning])
         phis.append(np.degrees(np.arctan(np.radians(w) * tr.speed[turning] / config.G)))
         if len(tr.t) >= 2:
             vzs.append(np.abs(np.diff(tr.pos[:, 2]) / np.diff(tr.t)))
-    speeds, phis, omegas, turn_v, vzs = (np.concatenate(a) for a in (speeds, phis, omegas, turn_v, vzs))
+        for start in tr.turn_onsets:
+            end = start
+            while end < len(tr.t) and tr.phase[end] in in_turn:
+                end += 1
+            w_seg = np.abs(tr.omega[start:end])
+            w_seg = w_seg[~np.isnan(w_seg)]
+            if len(w_seg):
+                maneuvers.append([float(np.median(tr.speed[start:end])), float(np.median(w_seg)),
+                                  float(tr.t[end - 1] - tr.t[start])])
+    speeds, phis, omegas, vzs = (np.concatenate(a) for a in (speeds, phis, omegas, vzs))
     q_lo, q_hi = config.CALIB_V_QUANTILES
     grid = np.linspace(q_lo, q_hi, config.CALIB_GRID_POINTS)
     cap = float(np.quantile(omegas, config.CALIB_OMEGA_CAP_QUANTILE))
-    order = np.argsort(omegas, kind="stable")
-    pairs = [[float(turn_v[i]), float(omegas[i])] for i in order if omegas[i] <= cap]
+    maneuvers.sort(key=lambda m: m[1])
     limits = Limits(
         v_min=float(np.quantile(speeds, q_lo)),
         v_max=float(np.quantile(speeds, q_hi)),
@@ -109,10 +120,10 @@ def calibrate_limits(tracks: list) -> tuple:
         omega_cap_deg=cap,
         speed_q=[float(x) for x in np.quantile(speeds, grid)],
         omega_q=[float(x) for x in np.quantile(omegas, grid)],
-        turn_pairs=pairs,
+        maneuvers=maneuvers,
     )
     info = {"points_speed": int(len(speeds)), "points_turn": int(len(omegas)),
-            "points_vz": int(len(vzs))}
+            "points_vz": int(len(vzs)), "maneuvers": len(maneuvers)}
     return limits, info
 
 
@@ -158,11 +169,14 @@ def _straight(rng, v):
 
 
 def _turn(rng, limits, angle_deg=None, u_range=(0.0, 1.0), vz=0.0):
-    """Разворот на угол angle_deg; скорость и |w| - пара из маневров логов (u_range - по рангу |w|)."""
-    angle = angle_deg if angle_deg is not None else rng.uniform(*config.SYNTH_TURN_ANGLE_DEG)
-    v, rate = limits.sample_turn(rng, u_range)
+    """
+    Разворот по маневру логов (u_range - по рангу |w|). Без angle_deg длительность берётся
+    из того же маневра (не длиннее SYNTH_MAX_TURN_S), иначе - по заданному углу.
+    """
+    v, rate, duration = limits.sample_maneuver(rng, u_range)
+    duration = angle_deg / rate if angle_deg is not None else min(duration, config.SYNTH_MAX_TURN_S)
     sign = rng.choice([-1.0, 1.0])
-    return Segment(angle / rate, sign * rate, v, vz)
+    return Segment(duration, sign * rate, v, vz)
 
 
 def make_plan(scenario: str, rng: np.random.Generator, limits: Limits, v: float) -> list:
