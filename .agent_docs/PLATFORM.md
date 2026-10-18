@@ -12,14 +12,35 @@
 ## Домашний ПК (обучение)
 
 Со слов пользователя: Windows 11, RTX 5070 Ti. Доступа у агента нет.
-- Подключение (SSH через Radmin VPN), адрес и пользователь описаны в документах
-  старого проекта `C:\Users\1\Desktop\ГУАПчик\! мага\диплом\diplom_project\`:
-  `md\DAILY_ROUTINE.md` и `ИНСТРУКЦИЯ_ЗАПУСКА.txt`. Сюда не копировать.
-- Код на домашний ПК попадает через GitHub (`git pull`), репозиторий
-  `https://github.com/Nika047/diplom_maga`. На домашнем ПК он ещё не клонирован.
+
+По выводу пользователя 18.10.2026: процессор AMD64 Family 26 (AuthenticAMD),
+Windows 11 10.0.26200, Python 3.12.10, numpy 2.5.4.
+
+**Целевая версия Python на обоих ПК - 3.13.3**, как на рабочем: решение
+пользователя 18.10.2026. Полного побитового совпадения синтетики это не
+гарантирует - процессоры разные. Сверка синтетики - по отпечатку
+(`PROJECT_STATE.md`).
+- **Подключение** - SSH через Radmin VPN: адрес `26.244.190.10`, пользователь
+  `kirill`, вход паролем учётной записи (не PIN). Пароль в документы не
+  записывать.
+  - Проверка порта с рабочего ПК: `Test-NetConnection 26.244.190.10 -Port 22`
+    (нужно `TcpTestSucceeded : True`).
+  - Вход: `ssh kirill@26.244.190.10`.
+  - Источник - документы старого проекта (`md\DAILY_ROUTINE.md`).
+- **Код** на домашний ПК попадает через GitHub (`git pull`), репозиторий
+  `https://github.com/Nika047/diplom_maga`.
+  - Репозиторий **открытый** с 18.10.2026: `clone` и `pull` работают без входа.
+  - Если его снова закроют: в ssh-сессии Git Credential Manager не может
+    сохранить вход в хранилище Windows (`Unable to persist credentials with the
+    'wincredman' credential store`). Тогда понадобятся:
+    - хранилище DPAPI: `git config --global credential.credentialStore dpapi`;
+    - токен (fine-grained, только `diplom_maga`, Contents: Read-only) вместо
+      пароля. Токен в документы не записывать.
+  - Клонирован на домашний ПК в `C:\Users\kirill\Desktop\diplom_maga`, этап 0 там
+    выполнен 18.10.2026.
 - Предположение, проверить при установке: RTX 5070 Ti требует сборку PyTorch с
   поддержкой CUDA 12.8 и новее.
-- **Папка проекта (план):** `C:\Users\kirill\Desktop\diplom_maga`, клон с GitHub.
+- **Папка проекта:** `C:\Users\kirill\Desktop\diplom_maga`, клон с GitHub.
   Старый проект там же - `TATPN_diplom`, его не трогать.
 - Подключение - по ssh из PowerShell рабочего ПК при запущенном Radmin VPN. После
   входа набрать `powershell`, иначе откроется `cmd`.

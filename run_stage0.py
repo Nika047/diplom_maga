@@ -44,6 +44,16 @@ def tracks_hash(tracks: list) -> str:
     return h.hexdigest()[:16]
 
 
+def tracks_fingerprint(tracks: list) -> str:
+    """
+    Отпечаток для сверки синтетики между компьютерами. Точная сумма тут не годится:
+    интегрирование на разных процессорах и версиях Python расходится в последнем
+    разряде (на рабочем и домашнем ПК - 6e-8 м на сумме около 2e8 м).
+    """
+    total = sum(float(np.abs(tr.pos).sum()) for tr in tracks)
+    return f"{len(tracks)} траекторий, {sum(len(tr) for tr in tracks)} точек, сумма |координат| {total:.3f} м"
+
+
 def hours(tracks: list) -> float:
     return sum(tr.duration_s for tr in tracks) / 3600.0
 
@@ -394,9 +404,10 @@ def main() -> int:
     (CACHE / "calibration.json").write_text(json.dumps(limits.as_dict(), indent=1), encoding="utf-8")
     summary.section("Контрольные суммы (сравнивать между запусками и компьютерами)", [
         f"реальные треки: {tracks_hash(real)}",
-        f"синтетика train: {tracks_hash(synth_train)}",
-        f"синтетика анализ: {tracks_hash(synth_analysis)}",
         f"разбиение: {hashlib.sha256(json.dumps(splits, sort_keys=True).encode()).hexdigest()[:16]}",
+        f"синтетика train (отпечаток): {tracks_fingerprint(synth_train)}",
+        f"синтетика анализ (отпечаток): {tracks_fingerprint(synth_analysis)}",
+        f"синтетика train, точная сумма (может отличаться между компьютерами): {tracks_hash(synth_train)}",
     ])
 
     log.info("6. Рисунки")
