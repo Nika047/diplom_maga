@@ -1,8 +1,8 @@
 # Архитектура
 
-Состояние на 18.10.2026: этапы 0 и 1 реализованы. Этап 2 написан и проверен
-смоуком на рабочем ПК, полное обучение - на домашнем. Модули этапов 3 и дальше
-помечены «план».
+Состояние на 18.10.2026: этапы 0-2 реализованы и выполнены. Этап 3 написан и
+проверен смоуком на рабочем ПК, полное обучение - на домашнем. Модули этапов 4 и
+дальше помечены «план».
 
 ## Поток данных
 
@@ -32,7 +32,10 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
                            |
    гибрид: прогноз IMM + поправка (apply_correction) -> eval/metrics.py
                            |
-   (план) другие корректоры (этап 3) -> tuning/ (этап 4)
+   этап 3: LSTM, GRU, Transformer, Mamba (гибриды) + GRU, Mamba без IMM (окна build_windows_e2e)
+           -> eval/compare.py (одинаковые пары (k, h) для всех методов)
+                           |
+   (план) tuning/ (этап 4)
 ```
 
 ## Модули
@@ -61,10 +64,15 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `data/windows.py` | Нарезка окон (единственное место), система курса, `apply_correction` | есть |
 | `training/dataset.py` | Сборка окон с кэшем и подписью параметров, `Normalizer` | есть |
 | `training/trainer.py` | Обучение, ранняя остановка, overfit one batch, `predict` | есть |
-| `models/__init__.py`, `models/gru.py` | Реестр корректоров, GRU | есть |
+| `models/__init__.py` | Реестр `CORRECTORS`: GRU, LSTM, Transformer, Mamba | есть |
+| `models/gru.py`, `models/lstm.py` | Рекуррентные корректоры | есть |
+| `models/transformer.py` | Кодировщик Transformer, токен - обзор, позиционное кодирование обучаемое | есть |
+| `models/mamba.py` | Mamba на чистом PyTorch (селективное сканирование циклом по времени), `sequence()` для проверки причинности | есть |
+| `eval/compare.py` | Сравнение методов на одинаковых парах, разделы сводки, рисунки; `mask_forecast` | есть |
 | `viz/train_plots.py` | Кривые loss | есть |
 | `run_stage2.py` | Этап 2, ключи `--smoke` и `--rebuild` | есть |
-| Корректоры LSTM, Transformer, Mamba; `tuning/` | Этапы 3-4 | план |
+| `run_stage3.py` | Этап 3: все корректоры и модели без IMM; `--smoke`, `--rebuild`, `--only GRU,Mamba` | есть |
+| `tuning/` | Этап 4 | план |
 | `predict.py` | Итоговая программа | план |
 
 **Кэш этапа 0** (`cache/stage0/`) - вход следующих этапов:
@@ -96,6 +104,7 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | Система курса | система «поперёк / вдоль курса» | `to_local` / `to_global`; ось 0 - поперёк вправо, ось 1 - вдоль курса IMM в обзоре k, начало - оценка IMM в k | - |
 | Поправка | поправка корректора | `y` = истина(k+h) - прогноз IMM(k, h) по горизонтали, в системе курса; в сети - делённая на `Normalizer.y_std` | - |
 | Гибрид | IMM + корректор | `IMM+GRU` и т.п.; прогноз = `apply_correction(forecast_IMM, k, psi, поправка)`, высота - от IMM | - |
+| Сквозная модель | модель без IMM | `GRU (без IMM)`, `Mamba (без IMM)`; окна `x_e2e` (4 признака), цель `y_e2e` - смещение истины от отметки k; прогноз - `apply_e2e`, курс `psi_e2e` - по МНК-прямой по последним отметкам | - |
 | Тип аппарата | тип БПЛА | `Track.aircraft` | префикс имени файла |
 | Режим полёта | режим | `Track.flight_mode` (без `*`) | `FM` |
 | Путевая скорость | скорость | `Track.speed`, м/с, из координат | `GSpd(kmh)` (км/ч) - **не используется** |
@@ -114,8 +123,9 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
   (`make_track_rng("radar", flight_id)`), поэтому одинаковы на любом компьютере
   и при любом составе выборки.
 
-**Кэш этапа 2** (`cache/stage2/`): `train.npz`, `val.npz`, `train_smoke.npz` +
-`*.json` с подписью - параметры РЛС, IMM, окна, `FEATURES_VERSION`, хеш списка
+**Кэш этапов 2-3** (`cache/stage2/`, общий): `train.npz`, `val.npz`,
+`train_smoke.npz` (поля для гибрида и для моделей без IMM, `FEATURES_VERSION = 2`)
++ `*.json` с подписью - параметры РЛС, IMM, окна, `FEATURES_VERSION`, хеш списка
 трасс. При несовпадении подписи кэш пересобирается сам. **Изменил признаки в
 `data/windows.py` - увеличь `training/dataset.FEATURES_VERSION`**, иначе подпись
 не заметит изменения.
@@ -126,7 +136,8 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
   1. Модуль в `models/`: вход (B, W, F), выход (B, H, 2), последний слой
      инициализирован нулями.
   2. Регистрация в `models.CORRECTORS`.
-  3. Смоук и overfit - как в `run_stage2.py`.
+  3. Строка в `EXPERIMENTS` в `run_stage3.py`.
+  4. Смоук: `run_stage3.py --smoke --only <имя>`.
 
 - **Новый сценарий генератора:**
   1. Ветка в `make_plan`.

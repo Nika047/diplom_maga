@@ -20,24 +20,35 @@ import numpy as np
 
 import config
 from common.logging_setup import get_logger
-from data.windows import build_windows
+from data.windows import build_windows, build_windows_e2e
 from filters.imm import IMM
 from radar.model import observe
 
-FEATURES_VERSION = 1  # увеличить при изменении состава признаков в data/windows.py
+FEATURES_VERSION = 2  # увеличить при изменении состава признаков в data/windows.py
+_FIELDS = ("x", "y", "track", "k", "psi", "x_e2e", "y_e2e", "psi_e2e")
 
 
 @dataclass
 class WindowSet:
-    x: np.ndarray        # (N, W, F)
-    y: np.ndarray        # (N, H, 2)
+    x: np.ndarray        # (N, W, F) гибрид
+    y: np.ndarray        # (N, H, 2) поправка к IMM
     track: np.ndarray    # (N,) индекс трассы в flight_ids
     k: np.ndarray        # (N,) обзор
     psi: np.ndarray      # (N,) курс IMM в обзоре k
+    x_e2e: np.ndarray    # (N, W, 4) сквозная модель, те же обзоры
+    y_e2e: np.ndarray    # (N, H, 2) смещение от последней отметки
+    psi_e2e: np.ndarray  # (N,) курс по отметкам
     flight_ids: list
 
     def __len__(self) -> int:
         return len(self.x)
+
+    def view(self, mode: str) -> "WindowSet":
+        """Окна для режима "hybrid" или "e2e": x, y, psi подменяются на соответствующие."""
+        if mode == "hybrid":
+            return self
+        return WindowSet(self.x_e2e, self.y_e2e, self.track, self.k, self.psi_e2e,
+                         self.x_e2e, self.y_e2e, self.psi_e2e, self.flight_ids)
 
 
 def signature(flight_ids: list) -> dict:
@@ -57,20 +68,20 @@ def signature(flight_ids: list) -> dict:
 def build(tracks: list, imm: IMM = None) -> tuple:
     """Окна по списку треков. Возвращает (WindowSet, список RadarTrack, список FilterRun)."""
     imm = imm or IMM()
-    xs, ys, tr_idx, ks, psis, rts, runs = [], [], [], [], [], [], []
+    parts = {name: [] for name in _FIELDS}
+    rts, runs = [], []
     for i, tr in enumerate(tracks):
         rt = observe(tr)
         run = imm.run(rt)
         w = build_windows(rt, run)
+        e = build_windows_e2e(rt, w["k"])
         rts.append(rt)
         runs.append(run)
-        xs.append(w["x"])
-        ys.append(w["y"])
-        ks.append(w["k"])
-        psis.append(w["psi"])
-        tr_idx.append(np.full(len(w["k"]), i))
-    ws = WindowSet(np.concatenate(xs), np.concatenate(ys), np.concatenate(tr_idx), np.concatenate(ks),
-                   np.concatenate(psis), [tr.flight_id for tr in tracks])
+        for name, val in (("x", w["x"]), ("y", w["y"]), ("k", w["k"]), ("psi", w["psi"]),
+                          ("x_e2e", e["x"]), ("y_e2e", e["y"]), ("psi_e2e", e["psi"]),
+                          ("track", np.full(len(w["k"]), i))):
+            parts[name].append(val)
+    ws = WindowSet(*(np.concatenate(parts[name]) for name in _FIELDS), [tr.flight_id for tr in tracks])
     return ws, rts, runs
 
 
@@ -84,12 +95,12 @@ def load_or_build(name: str, tracks: list, cache_dir: Path, rebuild: bool = Fals
         if json.loads(meta.read_text(encoding="utf-8")) == sig:
             data = np.load(npz)
             log.info("Окна %s: из кэша %s (%d примеров)", name, npz, len(data["x"]))
-            return WindowSet(data["x"], data["y"], data["track"], data["k"], data["psi"], flight_ids)
+            return WindowSet(*(data[f] for f in _FIELDS), flight_ids)
         log.info("Окна %s: параметры изменились, кэш пересобирается", name)
     log.info("Окна %s: прогон РЛС и IMM по %d трассам...", name, len(tracks))
     ws, _, _ = build(tracks)
     cache_dir.mkdir(parents=True, exist_ok=True)
-    np.savez(npz, x=ws.x, y=ws.y, track=ws.track, k=ws.k, psi=ws.psi)
+    np.savez(npz, **{f: getattr(ws, f) for f in _FIELDS})
     meta.write_text(json.dumps(sig, ensure_ascii=False, indent=1), encoding="utf-8")
     log.info("Окна %s: %d примеров, записаны в %s", name, len(ws), npz)
     return ws
@@ -100,6 +111,11 @@ class Normalizer:
     x_mean: np.ndarray   # (F,)
     x_std: np.ndarray    # (F,)
     y_std: np.ndarray    # (2,)
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "Normalizer":
+        return cls(np.array(d["x_mean"], np.float32), np.array(d["x_std"], np.float32),
+                   np.array(d["y_std"], np.float32))
 
     @classmethod
     def fit(cls, ws: WindowSet) -> "Normalizer":

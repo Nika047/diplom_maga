@@ -24,7 +24,8 @@ RANDOM_SEED = 42
 
 # Потоки случайных чисел порождаются из RANDOM_SEED в этом порядке.
 # Новые потоки добавлять только в конец, иначе изменятся все прежние.
-RNG_STREAMS = ("splits", "synth_train", "synth_analysis", "check_determinism", "synth_pilot", "radar")
+RNG_STREAMS = ("splits", "synth_train", "synth_analysis", "check_determinism", "synth_pilot", "radar",
+               "training")
 
 # ============================================================================
 # Логи полётов: состав
@@ -183,6 +184,10 @@ WINDOW_SCANS = 20            # окно входа корректора: пос�
 CORRECTOR_HIDDEN = 64
 CORRECTOR_LAYERS = 2
 CORRECTOR_DROPOUT = 0.1
+TRANSFORMER_HEADS = 4
+MAMBA_D_STATE = 16           # размер состояния SSM
+MAMBA_EXPAND = 2             # внутренняя ширина = EXPAND * CORRECTOR_HIDDEN
+MAMBA_CONV = 4               # ядро причинной свёртки
 OVERFIT_STEPS = 300          # проверка overfit one batch
 OVERFIT_TARGET = 0.1         # loss должен упасть ниже этой доли от начального
 

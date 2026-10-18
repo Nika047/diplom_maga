@@ -15,7 +15,8 @@ import config  # noqa: E402
 from viz.plots import PHASE_COLORS, PHASE_RU, _save  # noqa: E402
 
 METHOD_COLORS = {"CV": "#7f7f7f", "KF": "#1976d2", "IMM": "#d32f2f", "IMM+GRU": "#2e7d32",
-                 "IMM+LSTM": "#6a1b9a", "IMM+Transformer": "#ef6c00", "IMM+Mamba": "#00838f"}
+                 "IMM+LSTM": "#6a1b9a", "IMM+Transformer": "#ef6c00", "IMM+Mamba": "#00838f",
+                 "GRU (без IMM)": "#9ccc65", "Mamba (без IMM)": "#80deea"}
 MODEL_COLORS = {"CV": "#1976d2", "CA": "#2e7d32", "CT": "#d32f2f"}
 
 

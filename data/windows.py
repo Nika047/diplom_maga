@@ -17,6 +17,10 @@
 Проверяется на этапе 2: признаки, посчитанные по началу трассы, совпадают с
 признаками полной трассы (причинность); нулевая поправка даёт ровно прогноз IMM;
 поворот и обратный поворот возвращают исходный вектор.
+
+Окна сквозных моделей (без IMM, этап 3) - build_windows_e2e: те же обзоры k, только
+отметки РЛС; цель - смещение от последней отметки. Проверяется на этапе 3: нулевое
+смещение даёт прогноз «последняя отметка», признаки причинные.
 """
 
 import numpy as np
@@ -116,4 +120,54 @@ def apply_correction(forecast: np.ndarray, ks: np.ndarray, psi: np.ndarray, corr
     """Прогноз гибрида: прогноз IMM (K, H, 3) плюс поправка (N, H, 2) в обзорах ks; высота - от IMM."""
     out = forecast.copy()
     out[ks, :, :2] += to_global(corr.astype(float), psi[:, None])
+    return out
+
+
+# ============================================================================
+# Сквозные модели (без IMM) - для сравнения: помогает ли IMM нейросети
+# ============================================================================
+
+N_FEATURES_E2E = 4
+
+
+def build_windows_e2e(rt, ks: np.ndarray, window: int = config.WINDOW_SCANS,
+                      horizon: int = config.HORIZON_SCANS, with_target: bool = True) -> dict:
+    """
+    Окна только из отметок РЛС для тех же обзоров ks, что у гибрида (одинаковые пары
+    для сравнения). Система - по курсу, оценённому прямой по последним CV_LS_POINTS
+    отметкам; начало - отметка в обзоре k.
+
+    Признаки обзора j: отметка j - отметка k (3), дальность до РЛС, км (1).
+    Цель - смещение истины(k + h) от отметки k по горизонтали (H, 2), а не поправка.
+    """
+    ks = np.asarray(ks, dtype=int)
+    if len(ks) == 0:
+        out = {"x": np.zeros((0, window, N_FEATURES_E2E), np.float32), "k": ks, "psi": np.zeros(0)}
+        if with_target:
+            out["y"] = np.zeros((0, horizon, 2), np.float32)
+        return out
+    n_ls = config.CV_LS_POINTS
+    ls_idx = ks[:, None] + np.arange(-n_ls + 1, 1)[None, :]
+    tt = (np.arange(n_ls) - (n_ls - 1)) * config.SCAN_PERIOD
+    tc = tt - tt.mean()
+    vel = (tc[None, :, None] * rt.meas[ls_idx][..., :2]).sum(axis=1) / (tc ** 2).sum()  # (N, 2) МНК-наклон
+    psi = np.arctan2(vel[:, 0], vel[:, 1])
+    idx = ks[:, None] + np.arange(-window + 1, 1)[None, :]
+    origin = rt.meas[ks][:, None, :]
+    x = np.concatenate([to_local(rt.meas[idx] - origin, psi[:, None]),
+                        rt.polar[idx][..., 0:1] / 1000.0], axis=-1).astype(np.float32)
+    out = {"x": x, "k": ks, "psi": psi}
+    if with_target:
+        h = np.arange(1, horizon + 1)
+        disp = rt.truth[ks[:, None] + h[None, :], :2] - rt.meas[ks][:, None, :2]
+        out["y"] = to_local(disp, psi[:, None]).astype(np.float32)
+    return out
+
+
+def apply_e2e(rt, ks: np.ndarray, psi: np.ndarray, disp: np.ndarray,
+              horizon: int = config.HORIZON_SCANS) -> np.ndarray:
+    """Прогноз сквозной модели (K, H, 3): отметка k + смещение; высота - отметки k; вне ks - nan."""
+    out = np.full((len(rt.t), horizon, 3), np.nan)
+    out[ks, :, :2] = rt.meas[ks][:, None, :2] + to_global(disp.astype(float), psi[:, None])
+    out[ks, :, 2] = rt.meas[ks][:, None, 2]
     return out

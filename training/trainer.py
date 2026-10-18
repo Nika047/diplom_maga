@@ -72,7 +72,7 @@ def train(model: nn.Module, x_tr, y_tr, x_val, y_val, params: dict, device: torc
     history = []
     best_val, best_state, bad = float("inf"), None, 0
     val0 = mse(model, x_val, y_val, device)
-    log.info("val loss до обучения (нулевая поправка = IMM): %.4f", val0)
+    log.info("val loss до обучения (нулевой выход: у гибрида = IMM): %.4f", val0)
     for epoch in range(1, params["epochs"] + 1):
         model.train()
         t0 = time.time()
