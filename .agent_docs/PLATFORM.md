@@ -59,12 +59,12 @@ Windows 11 10.0.26200, numpy 2.5.4.
 |---|---|---|
 | numpy | 2.5.4 | Данные, генератор |
 | matplotlib | 3.11.2 | PNG-рисунки |
+| torch | 2.11.0 | Корректоры. Рабочий ПК - сборка `+cpu`, домашний - `+cu128` (проверено 18.10.2026: RTX 5070 Ti считает). Ставится отдельно, до `requirements.txt` (команды - в нём) |
 
 Планируется, не установлено:
 
 | Библиотека | Для чего |
 |---|---|
-| torch | Нейросети (этап 2) |
 | optuna | Генетический подбор, сэмплер NSGA-II (этап 4) |
 | Mamba | Официальный `mamba-ssm` рассчитан на CUDA под Linux. Под Windows нужна реализация на чистом PyTorch (предположение, проверить) |
 
@@ -97,6 +97,24 @@ Get-Content results\stage0\summary.txt -Encoding UTF8
 .venv\Scripts\python.exe run_stage1.py
 Get-Content results\stage1\summary.txt -Encoding UTF8
 ```
+
+**Этап 2:**
+- рабочий ПК - только смоук: `.venv\Scripts\python.exe run_stage2.py --smoke`,
+  сводка в `results\stage2\summary_smoke.txt`. Без `--smoke` и без GPU скрипт
+  завершается с кодом 2;
+- домашний ПК - полное обучение: `run_stage2.py`. Первый запуск собирает окна
+  train (прогон РЛС и IMM по всем трассам train, минуты на процессоре) и кладёт
+  их в `cache\stage2\`. Дальше кэш переиспользуется;
+- чтобы обрыв ssh не остановил обучение, запуск в фоне (`ReturnValue = 0` -
+  запущено):
+
+  ```powershell
+  $P = (Get-Location).Path
+  Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = "cmd /c `"cd /d $P && .venv\Scripts\python.exe -u run_stage2.py > stage2.out 2>&1`"" }
+  ```
+
+  Ход - `Get-Content stage2.out -Wait -Tail 20 -Encoding UTF8` или последний файл
+  в `log\`.
 
 `run_stageN.py` возвращает код 0, если все проверки PASS, иначе 1. Этап 1 читает
 кэш этапа 0 и без него завершается с FAIL. На рабочем ПК идёт около 25 с, из них

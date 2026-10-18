@@ -1,2 +1,6 @@
 numpy>=2.0
 matplotlib>=3.8
+# torch ставится отдельно, до этого файла, сборкой под свой компьютер:
+#   домашний ПК (RTX 5070 Ti): pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128
+#   рабочий ПК (без GPU):      pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
+torch==2.11.0
