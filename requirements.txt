@@ -4,3 +4,4 @@ matplotlib>=3.8
 #   домашний ПК (RTX 5070 Ti): pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cu128
 #   рабочий ПК (без GPU):      pip install torch==2.11.0 --index-url https://download.pytorch.org/whl/cpu
 torch==2.11.0
+optuna==5.0.0   # генетический подбор (сэмплер NSGA-II), этап 4

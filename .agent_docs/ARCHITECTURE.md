@@ -35,7 +35,10 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
    этап 3: LSTM, GRU, Transformer, Mamba (гибриды) + GRU, Mamba без IMM (окна build_windows_e2e)
            -> eval/compare.py (одинаковые пары (k, h) для всех методов)
                            |
-   (план) tuning/ (этап 4)
+   этап 4: tuning/search.py
+           шаг imm   -> cache/stage4/imm_best.json (параметры IMM)
+           шаг tune  -> cache/stage4/best_params.json (окно, сеть, обучение - для каждой модели)
+           шаг final -> несколько seed, оценка val / test / holdout, results/stage4/
 ```
 
 ## Модули
@@ -74,7 +77,8 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `run_stage3.py` | Этап 3: все корректоры и модели без IMM; `--smoke`, `--rebuild`, `--only GRU,Mamba` | есть |
 | `training/experiment.py` | Один эксперимент: нормализация, overfit, обучение, прогноз на val, веса, кривая loss. Общий для `run_stage3*.py` | есть |
 | `run_stage3_window.py` | Дополнение этапа 3: те же модели на окнах 20 / 60 / 100 обзоров, оценка на общих обзорах; `--windows`, `--only`, `--smoke` | есть |
-| `tuning/` | Этап 4 | план |
+| `tuning/search.py` | Генетический подбор (Optuna, NSGA-II): цель для IMM и для корректоров, бюджет попыток, `config_override`, `split_params` | есть |
+| `run_stage4.py` | Этап 4: `--phase imm / tune / final / all`, `--smoke`, `--only`, `--trials`, `--imm-trials` | есть |
 | `predict.py` | Итоговая программа | план |
 
 **Кэш этапа 0** (`cache/stage0/`) - вход следующих этапов:
@@ -133,6 +137,18 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 `load_or_build`, `build_corrector`; по умолчанию `config.WINDOW_SCANS`. При несовпадении подписи кэш пересобирается сам. **Изменил признаки в
 `data/windows.py` - увеличь `training/dataset.FEATURES_VERSION`**, иначе подпись
 не заметит изменения.
+
+**Кэш этапа 4** (`cache/stage4/`, смоук - `cache/stage4_smoke/`):
+- `optuna.db` - все попытки подбора (SQLite). Прерванный подбор продолжается,
+  бюджет считается по завершённым попыткам. Для подбора с нуля удалить базу;
+- `imm_best.json`, `best_params.json` - лучшие параметры;
+- окна при подобранном IMM - `train_w<N>`, `val_w<N>`. Отдельно от
+  `cache/stage2`, чтобы не перезаписывать окна этапов 2-3.
+
+**Параметры IMM во время работы.** `IMM()` читает `IMM_P_STAY`, `IMM_MODELS`,
+`IMM_MU0`, `HORIZON_SCANS` из config при создании, а модели движения читают
+`FILTER_SIGMA_*` при каждом шаге. Поэтому подобранные параметры применяются через
+`tuning.search.config_override(...)`, без правки `config.py`.
 
 ## Как расширять
 

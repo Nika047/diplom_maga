@@ -16,7 +16,7 @@ from viz.plots import PHASE_COLORS, PHASE_RU, _save  # noqa: E402
 
 METHOD_COLORS = {"CV": "#7f7f7f", "KF": "#1976d2", "IMM": "#d32f2f", "IMM+GRU": "#2e7d32",
                  "IMM+LSTM": "#6a1b9a", "IMM+Transformer": "#ef6c00", "IMM+Mamba": "#00838f",
-                 "GRU (без IMM)": "#9ccc65", "Mamba (без IMM)": "#80deea"}
+                 "GRU (без IMM)": "#9ccc65", "Mamba (без IMM)": "#80deea", "IMM (исходный)": "#f48fb1"}
 MODEL_COLORS = {"CV": "#1976d2", "CA": "#2e7d32", "CT": "#d32f2f"}
 
 
@@ -60,7 +60,7 @@ def plot_dynamic_curves(curves: dict, levels: dict, path: Path, title: str) -> N
         for (method, hh), (ms, curve, counts) in curves.items():
             if hh != h:
                 continue
-            color = METHOD_COLORS[method]
+            color = METHOD_COLORS.get(method)
             ax.plot(ms, curve, "-o", ms=3, color=color, label=method)
             ax.axhline(levels[(method, h)], color=color, ls=":", lw=0.8)
         ax.axvline(0, color="black", lw=0.8)
@@ -77,7 +77,7 @@ def plot_by_horizon(ade: dict, path: Path, title: str) -> None:
     fig, ax = plt.subplots(figsize=(6.5, 4.2))
     hs = np.arange(1, config.HORIZON_SCANS + 1) * config.SCAN_PERIOD
     for method, vals in ade.items():
-        ax.plot(hs, vals, "-o", color=METHOD_COLORS[method], label=method)
+        ax.plot(hs, vals, "-o", color=METHOD_COLORS.get(method), label=method)
     ax.set_xlabel("горизонт прогноза, с")
     ax.set_ylabel("ADE по горизонтали, м")
     ax.legend()
@@ -94,7 +94,7 @@ def plot_by_phase(table: dict, path: Path, title: str) -> None:
     x = np.arange(len(phases))
     for i, method in enumerate(methods):
         ax.bar(x + i * width, [table[method].get(p, np.nan) for p in phases], width,
-               color=METHOD_COLORS[method], label=method)
+               color=METHOD_COLORS.get(method), label=method)
     ax.set_xticks(x + width * (len(methods) - 1) / 2)
     ax.set_xticklabels([PHASE_RU[p] for p in phases])
     ax.set_ylabel("ADE по горизонтали, м")

@@ -64,15 +64,16 @@ def overfit_one_batch(model: nn.Module, x: np.ndarray, y: np.ndarray, steps: int
 
 
 def train(model: nn.Module, x_tr, y_tr, x_val, y_val, params: dict, device: torch.device,
-          rng: np.random.Generator) -> tuple:
-    """Возвращает (история по эпохам, лучшие веса)."""
+          rng: np.random.Generator, quiet: bool = False) -> tuple:
+    """Возвращает (история по эпохам, лучшие веса). quiet - без строки на каждую эпоху (подбор)."""
     log = get_logger()
+    log_epoch = log.debug if quiet else log.info
     model.to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=params["lr"], weight_decay=params.get("weight_decay", 1e-4))
     history = []
     best_val, best_state, bad = float("inf"), None, 0
     val0 = mse(model, x_val, y_val, device)
-    log.info("val loss до обучения (нулевой выход: у гибрида = IMM): %.4f", val0)
+    log_epoch("val loss до обучения (нулевой выход: у гибрида = IMM): %.4f", val0)
     for epoch in range(1, params["epochs"] + 1):
         model.train()
         t0 = time.time()
@@ -91,14 +92,14 @@ def train(model: nn.Module, x_tr, y_tr, x_val, y_val, params: dict, device: torc
         val_loss = mse(model, x_val, y_val, device)
         history.append({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss,
                         "seconds": time.time() - t0})
-        log.info("эпоха %3d: train %.4f, val %.4f, %.1f с", epoch, train_loss, val_loss, time.time() - t0)
+        log_epoch("эпоха %3d: train %.4f, val %.4f, %.1f с", epoch, train_loss, val_loss, time.time() - t0)
         if val_loss < best_val - 1e-5:
             best_val, bad = val_loss, 0
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
         else:
             bad += 1
             if bad >= params["patience"]:
-                log.info("ранняя остановка: val не улучшался %d эпох", bad)
+                log_epoch("ранняя остановка: val не улучшался %d эпох", bad)
                 break
     if best_state is not None:
         model.load_state_dict(best_state)

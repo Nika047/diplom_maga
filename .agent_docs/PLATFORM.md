@@ -61,11 +61,7 @@ Windows 11 10.0.26200, numpy 2.5.4.
 | matplotlib | 3.11.2 | PNG-рисунки |
 | torch | 2.11.0 | Корректоры. Рабочий ПК - сборка `+cpu`, домашний - `+cu128` (проверено 18.10.2026: RTX 5070 Ti считает). Ставится отдельно, до `requirements.txt` (команды - в нём) |
 
-Планируется, не установлено:
-
-| Библиотека | Для чего |
-|---|---|
-| optuna | Генетический подбор, сэмплер NSGA-II (этап 4) |
+| optuna | 5.0.0 | Генетический подбор, сэмплер NSGA-II (этап 4). Рабочий ПК - установлена 18.10.2026 с согласия пользователя. Домашний ПК - ставится `pip install -r requirements.txt` после `git pull` |
 | Mamba | Официальный `mamba-ssm` рассчитан на CUDA под Linux. Под Windows нужна реализация на чистом PyTorch (предположение, проверить) |
 
 pandas не нужен: CSV читаются модулем `csv`.
@@ -138,6 +134,26 @@ Get-Content results\stage1\summary.txt -Encoding UTF8
 - на диске `cache\stage2\train_w60.npz` и `train_w100.npz` - около 0,6 и 0,8 ГБ;
 - рабочий ПК - смоук: `run_stage3_window.py --smoke --windows 20,30 --only GRU,Transformer`
   (около 2 минут).
+
+**Этап 4** (`run_stage4.py`):
+- рабочий ПК - смоук `run_stage4.py --phase all --smoke --only GRU`, около 1,5
+  минуты;
+- домашний ПК - сначала `pip install -r requirements.txt` (ставит Optuna), затем
+  в фоне `run_stage4.py --phase all` (журнал `stage4.out`). Можно по шагам:
+  `--phase imm`, затем `--phase tune`, затем `--phase final`;
+- длительность шага tune (оценка, не замер): по 30 попыток на 6 моделей, у
+  Mamba попытка - минуты. Порядок - часы;
+- **остановка и продолжение.** Остановить процесс:
+
+  ```powershell
+  Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'run_stage4\.py' } | ForEach-Object { taskkill /F /T /PID $_.ProcessId }
+  ```
+
+  Продолжить - тот же запуск `--phase all`. Завершённые шаги и попытки берутся из
+  `cache/stage4/optuna.db` и `*_best.json`. Оборванная попытка помечается FAIL и в
+  бюджет не входит. Сэмплер при продолжении получает новый seed, чтобы не
+  повторять кандидатов. Теряется только попытка, шедшая в момент остановки;
+- `TUNE_WINDOWS = (20,)` - по результату `run_stage3_window.py`.
 
 `run_stageN.py` возвращает код 0, если все проверки PASS, иначе 1. Этап 1 читает
 кэш этапа 0 и без него завершается с FAIL. На рабочем ПК идёт около 25 с, из них

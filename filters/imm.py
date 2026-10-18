@@ -53,8 +53,13 @@ def transition_matrix(m: int, p_stay: float) -> np.ndarray:
 
 
 class IMM:
-    def __init__(self, model_names=config.IMM_MODELS, mu0=config.IMM_MU0, p_stay=config.IMM_P_STAY,
-                 horizon: int = config.HORIZON_SCANS):
+    def __init__(self, model_names=None, mu0=None, p_stay=None, horizon: int = None):
+        # Значения по умолчанию читаются из config в момент создания, а не при импорте:
+        # этап 4 подменяет параметры IMM найденными генетическим алгоритмом.
+        model_names = config.IMM_MODELS if model_names is None else model_names
+        mu0 = config.IMM_MU0 if mu0 is None else mu0
+        p_stay = config.IMM_P_STAY if p_stay is None else p_stay
+        horizon = config.HORIZON_SCANS if horizon is None else horizon
         self.models = make_models(model_names)
         self.m = len(self.models)
         self.mu0 = np.asarray(mu0 if len(mu0) == self.m else [1.0 / self.m] * self.m, dtype=float)

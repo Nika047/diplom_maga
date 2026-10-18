@@ -6,15 +6,18 @@
 
 | Каталог | Git | Состояние |
 |---|---|---|
-| `диплом перезагрузка\diplom_project\` | `main`, `origin` = `Nika047/diplom_maga` (открытый); этапы 0-3 и их результаты в репозитории | **Не закоммичено:** эксперимент с длиной окна (`run_stage3_window.py`, `training/experiment.py`), параметр `window` в `training/dataset.py` и `models/__init__.py`, перенос кода из `run_stage3.py`, документы |
+| `диплом перезагрузка\diplom_project\` | `main`, `origin` = `Nika047/diplom_maga` (открытый); этапы 0-3 и эксперимент с окном в репозитории | **Не закоммичено:** этап 4 (`tuning/`, `run_stage4.py`), параметры сети в `models.build_corrector`, `seed` / `model_kwargs` / `extra_sets` в `training/experiment.py`, `quiet` в `trainer.train`, IMM читает config при создании, `optuna` в `requirements.txt`, `TUNE_WINDOWS`, цвета рисунков, документы |
 | `diplom_project\` (старый, эталон) | `main`, `origin` = `Nika047/TATPN_diplom` | Read-only, рабочее дерево чистое |
 
 ## Активная задача
 
-**Эксперимент с длиной окна** (`run_stage3_window.py`): код готов, смоук на
-рабочем ПК - 19 проверок PASS. Ждёт полного запуска на домашнем ПК. Затем этап 4:
-генетический подбор (Optuna, NSGA-II; установка одобрена пользователем
-18.10.2026) с одинаковым бюджетом, несколько seed, итог на test и holdout.
+- **Эксперимент с длиной окна** выполнен дома (18.10.2026 22:09): 55 проверок
+  PASS. Длинное окно не помогает, в подбор идёт окно 20 (`THESIS_NOTES.md`, 4.5).
+- **Этап 4** (`run_stage4.py`): код готов, смоук на рабочем ПК - 18 проверок
+  PASS. Подбор можно останавливать и продолжать (`PLATFORM.md`).
+
+**Следующий шаг:** запуск этапа 4 дома (`--phase all`, с остановками), затем
+разбор `results/stage4/summary_all.txt`.
 
 ## Сделано
 
