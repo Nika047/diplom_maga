@@ -6,7 +6,7 @@
 
 | Каталог | Git | Состояние |
 |---|---|---|
-| `диплом перезагрузка\diplom_project\` | `main`, `origin` = `Nika047/diplom_maga` (открытый); этапы 0-3 и эксперимент с окном в репозитории | **Не закоммичено:** этап 4 (`tuning/`, `run_stage4.py`), параметры сети в `models.build_corrector`, `seed` / `model_kwargs` / `extra_sets` в `training/experiment.py`, `quiet` в `trainer.train`, IMM читает config при создании, `optuna` в `requirements.txt`, `TUNE_WINDOWS`, цвета рисунков, документы |
+| `диплом перезагрузка\diplom_project\` | `main`, `origin` = `Nika047/diplom_maga` (открытый); этапы 0-4 в репозитории | **Не закоммичено:** этап 4б (`models/stack.py`, `tuning/arch_search.py`, `run_stage4b.py`), `feature_groups` в `data/windows.py`, многокритериальный подбор и размер популяции в `tuning/search.py`, `ARCH_*` в `config.py`, документы |
 | `diplom_project\` (старый, эталон) | `main`, `origin` = `Nika047/TATPN_diplom` | Read-only, рабочее дерево чистое |
 
 ## Активная задача
@@ -16,8 +16,12 @@
 - **Этап 4** (`run_stage4.py`): код готов, смоук на рабочем ПК - 18 проверок
   PASS. Подбор можно останавливать и продолжать (`PLATFORM.md`).
 
-**Следующий шаг:** запуск этапа 4 дома (`--phase all`, с остановками), затем
-разбор `results/stage4/summary_all.txt`.
+- **Этап 4б** (`run_stage4b.py`, эволюционный поиск архитектуры): код готов,
+  смоук на рабочем ПК PASS. Не закоммичен.
+
+**Следующий шаг:** этап 4 идёт дома (`--phase all`, с остановками). После него -
+этап 4б, затем разбор `results/stage4/summary_all.txt` и
+`results/stage4b/summary_all.txt`.
 
 ## Сделано
 

@@ -13,6 +13,7 @@ import config
 from models.gru import GRUCorrector
 from models.lstm import LSTMCorrector
 from models.mamba import MambaCorrector
+from models.stack import BLOCK_TYPES, StackCorrector  # noqa: F401 - этап 4б
 from models.transformer import TransformerCorrector
 
 CORRECTORS = {"GRU": GRUCorrector, "LSTM": LSTMCorrector, "Transformer": TransformerCorrector,

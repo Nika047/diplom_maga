@@ -36,6 +36,17 @@ def n_features(n_models: int) -> int:
     return 3 + 3 + 3 + 3 + n_models + n_models + 1
 
 
+def feature_groups(n_models: int) -> dict:
+    """Группы признаков гибрида -> индексы столбцов (порядок - как в build_windows)."""
+    sizes = [("отметка", 3), ("оценка IMM", 3), ("скорость IMM", 3), ("невязка", 3),
+             ("вероятности моделей", n_models), ("NIS моделей", n_models), ("дальность", 1)]
+    out, start = {}, 0
+    for name, size in sizes:
+        out[name] = list(range(start, start + size))
+        start += size
+    return out
+
+
 def heading(est: np.ndarray) -> np.ndarray:
     """Курс IMM (рад, от севера по часовой) по оценке скорости."""
     return np.arctan2(est[..., VX], est[..., VY])

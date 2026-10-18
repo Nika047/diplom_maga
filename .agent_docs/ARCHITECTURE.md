@@ -39,6 +39,8 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
            шаг imm   -> cache/stage4/imm_best.json (параметры IMM)
            шаг tune  -> cache/stage4/best_params.json (окно, сеть, обучение - для каждой модели)
            шаг final -> несколько seed, оценка val / test / holdout, results/stage4/
+   этап 4б: tuning/arch_search.py (NSGA-II, 2 цели) -> cache/stage4/arch_best.json,
+           фронт Парето и итог на test -> results/stage4b/
 ```
 
 ## Модули
@@ -79,6 +81,9 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `run_stage3_window.py` | Дополнение этапа 3: те же модели на окнах 20 / 60 / 100 обзоров, оценка на общих обзорах; `--windows`, `--only`, `--smoke` | есть |
 | `tuning/search.py` | Генетический подбор (Optuna, NSGA-II): цель для IMM и для корректоров, бюджет попыток, `config_override`, `split_params` | есть |
 | `run_stage4.py` | Этап 4: `--phase imm / tune / final / all`, `--smoke`, `--only`, `--trials`, `--imm-trials` | есть |
+| `models/stack.py` | `StackCorrector`: стопка блоков GRU / LSTM / Mamba / Attention с остаточными связями (этап 4б) | есть |
+| `tuning/arch_search.py` | Геном архитектуры, две цели (ADE, время прогноза), важность групп признаков и типов блоков | есть |
+| `run_stage4b.py` | Этап 4б: `--phase search / final / all`, `--smoke`, `--trials`. Нужен `cache/stage4/imm_best.json` | есть |
 | `predict.py` | Итоговая программа | план |
 
 **Кэш этапа 0** (`cache/stage0/`) - вход следующих этапов:
@@ -141,7 +146,12 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 **Кэш этапа 4** (`cache/stage4/`, смоук - `cache/stage4_smoke/`):
 - `optuna.db` - все попытки подбора (SQLite). Прерванный подбор продолжается,
   бюджет считается по завершённым попыткам. Для подбора с нуля удалить базу;
-- `imm_best.json`, `best_params.json` - лучшие параметры;
+- `imm_best.json`, `best_params.json` - лучшие параметры этапа 4;
+  `arch_best.json` - кандидаты, важность признаков и блоков этапа 4б (тот же
+  `optuna.db`, подбор `arch`). Этапы 4 и 4б одновременно не запускать: общая база
+  SQLite;
+- группы признаков для отбора - `data/windows.feature_groups(n_models)`, порядок
+  тот же, что в `build_windows`;
 - окна при подобранном IMM - `train_w<N>`, `val_w<N>`. Отдельно от
   `cache/stage2`, чтобы не перезаписывать окна этапов 2-3.
 

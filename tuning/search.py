@@ -62,21 +62,24 @@ def default_corrector_params() -> dict:
             "dropout": config.CORRECTOR_DROPOUT, "batch": 512, "lr": 1e-3, "weight_decay": 1e-4}
 
 
-def _sampler(seed: int) -> optuna.samplers.BaseSampler:
-    return optuna.samplers.NSGAIISampler(population_size=config.TUNE_POPULATION, seed=seed)
+def _sampler(seed: int, population: int = None) -> optuna.samplers.BaseSampler:
+    return optuna.samplers.NSGAIISampler(population_size=population or config.TUNE_POPULATION, seed=seed)
 
 
-def open_study(name: str, storage_path: Path, seed: int = config.RANDOM_SEED) -> optuna.Study:
+def open_study(name: str, storage_path: Path, seed: int = config.RANDOM_SEED, n_objectives: int = 1,
+               population: int = None) -> optuna.Study:
     """
     Подбор с хранением в SQLite. При продолжении сэмплер получает seed + число уже
     сделанных попыток: с тем же seed он заново предложил бы тех же кандидатов, что в
     начале. Подбор без перерыва воспроизводим; продолженный зависит от места остановки.
+    n_objectives > 1 - многокритериальный подбор (все цели минимизируются).
     """
     storage_path.parent.mkdir(parents=True, exist_ok=True)
     study = optuna.create_study(study_name=name, storage=f"sqlite:///{storage_path.as_posix()}",
-                                direction="minimize", sampler=_sampler(seed), load_if_exists=True)
+                                directions=["minimize"] * n_objectives, sampler=_sampler(seed, population),
+                                load_if_exists=True)
     if study.trials:
-        study.sampler = _sampler(seed + len(study.trials))
+        study.sampler = _sampler(seed + len(study.trials), population)
     return study
 
 
@@ -107,8 +110,13 @@ def run_budget(study: optuna.Study, objective, n_trials: int, first_params: dict
 
     def _log(st, trial):
         if trial.state == optuna.trial.TrialState.COMPLETE:
-            log.info("  %s: попытка %d - %.2f м (лучшее %.2f), %s", st.study_name, trial.number, trial.value,
-                     st.best_value, {k: (round(v, 5) if isinstance(v, float) else v) for k, v in trial.params.items()})
+            params = {k: (round(v, 5) if isinstance(v, float) else v) for k, v in trial.params.items()}
+            if len(st.directions) == 1:
+                log.info("  %s: попытка %d - %.2f м (лучшее %.2f), %s", st.study_name, trial.number, trial.value,
+                         st.best_value, params)
+            else:
+                log.info("  %s: попытка %d - %s, %s", st.study_name, trial.number,
+                         [round(v, 3) for v in trial.values], params)
         else:
             log.warning("  %s: попытка %d - %s", st.study_name, trial.number, trial.state.name)
 
