@@ -48,8 +48,18 @@ def mse(model: nn.Module, x: np.ndarray, y: np.ndarray, device: torch.device, ba
 
 def overfit_one_batch(model: nn.Module, x: np.ndarray, y: np.ndarray, steps: int, lr: float,
                       device: torch.device) -> tuple:
-    """Обучение на одном батче. Возвращает (loss в начале, loss в конце)."""
+    """Обучение на одном батче. Возвращает (loss в начале, loss в конце).
+
+    Dropout на время проверки отключается: это регуляризация, она мешает запомнить
+    батч, и при dropout 0,3 маленькая сеть не доходит до порога (этап 4б).
+    """
     model.to(device).train()
+    saved = []
+    for mod in model.modules():
+        if isinstance(mod, (nn.Dropout, nn.RNNBase, nn.MultiheadAttention)):
+            attr = "p" if isinstance(mod, nn.Dropout) else "dropout"
+            saved.append((mod, attr, getattr(mod, attr)))
+            setattr(mod, attr, 0.0)
     xb, yb = torch.from_numpy(x).to(device), torch.from_numpy(y).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
     first = last = None
@@ -58,8 +68,10 @@ def overfit_one_batch(model: nn.Module, x: np.ndarray, y: np.ndarray, steps: int
         loss = ((model(xb) - yb) ** 2).mean()
         loss.backward()
         opt.step()
-        first = float(loss) if first is None else first
-        last = float(loss)
+        first = float(loss.detach()) if first is None else first
+        last = float(loss.detach())
+    for mod, attr, value in saved:
+        setattr(mod, attr, value)
     return first, last
 
 
