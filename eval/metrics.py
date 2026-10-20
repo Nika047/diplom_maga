@@ -240,3 +240,45 @@ def alarm_response(tracks: list, threshold: float, offsets=config.DYN_OFFSETS) -
                     counts[i] += 1
     with np.errstate(invalid="ignore"):
         return ms, hits / counts, counts
+
+
+# ============================================================================
+# Строб - область прогноза (этап 6б)
+# ============================================================================
+# Область вокруг прогноза на горизонте h: круг радиуса r или эллипс {e: e^T C^-1 e <= q}.
+# Конформная калибровка (split conformal): радиус - квантиль меры несоответствия на
+# калибровочном наборе (val) уровня ceil((n + 1) * покрытие) / n. При
+# перестановочности примеров это даёт покрытие не ниже заданного на новых данных.
+
+def conformal_quantile(scores: np.ndarray, coverage: float) -> float:
+    """Конформный квантиль: значение с номером ceil((n + 1) * coverage) по возрастанию."""
+    s = np.sort(np.asarray(scores, dtype=float))
+    n = len(s)
+    if n == 0:
+        return float("nan")
+    rank = int(np.ceil((n + 1) * coverage))
+    return float(s[min(rank, n) - 1]) if rank <= n else float("inf")
+
+
+def mahalanobis2(err: np.ndarray, cov: np.ndarray) -> np.ndarray:
+    """e^T C^-1 e для err (N, 2) и cov (N, 2, 2)."""
+    return np.einsum("ni,nij,nj->n", err, np.linalg.inv(cov), err)
+
+
+def gate_report(inside: np.ndarray, area: np.ndarray, phase: np.ndarray, h: np.ndarray) -> dict:
+    """
+    Покрытие (доля истин внутри области) в целом, по участкам и по горизонтам;
+    размер - эквивалентный радиус sqrt(площадь / pi), медиана и среднее, м.
+    """
+    def cov_of(mask):
+        return float(inside[mask].mean()) if mask.any() else float("nan")
+    radius = np.sqrt(area / np.pi)
+    out = {"coverage": cov_of(np.ones(len(inside), bool)),
+           "radius_median": float(np.median(radius)) if len(radius) else float("nan"),
+           "radius_mean": float(radius.mean()) if len(radius) else float("nan"), "n": int(len(inside))}
+    for name in ("straight", "entry", "turn", "exit"):
+        out[f"coverage_{name}"] = cov_of(phase == PHASE_CODE[name])
+    for hh in np.unique(h):
+        out[f"coverage_h{int(hh)}"] = cov_of(h == hh)
+        out[f"radius_h{int(hh)}"] = float(np.median(radius[h == hh]))
+    return out

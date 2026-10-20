@@ -15,6 +15,10 @@ IMM (Interacting Multiple Model) на моделях filters/models.py и про
 Прогноз из обзора k на h обзоров: каждая модель экстраполирует свою оценку h раз,
 веса - вероятности моделей, продвинутые матрицей перехода на h шагов.
 
+Ковариация прогноза (этап 6б, строб) - по запросу run(rt, with_cov=True): каждая
+модель продвигает свою ковариацию h раз (F P F^T + Q), смесь - с теми же весами,
+что прогноз, плюс разброс прогнозов моделей. Без запроса прогон не меняется.
+
 Инициализация - по первым двум обнаруженным отметкам (скорость - разность).
 Сохраняются для этапа 2 (входы корректора): вероятности моделей, невязка
 объединённого прогноза, нормированный квадрат невязки каждой модели.
@@ -42,6 +46,7 @@ class FilterRun:
     innov: np.ndarray      # (K, 3) невязка объединённого прогноза на этот обзор
     nis: np.ndarray        # (K, M) нормированный квадрат невязки каждой модели
     forecast: np.ndarray   # (K, H, 3) прогноз положения на 1..H обзоров из обзора k
+    forecast_cov: np.ndarray = None  # (K, H, 2, 2) ковариация прогноза по горизонтали (with_cov)
 
 
 def transition_matrix(m: int, p_stay: float) -> np.ndarray:
@@ -96,17 +101,40 @@ class IMM:
             out[h] = w @ paths[:, h]
         return out
 
-    def run(self, rt: RadarTrack) -> FilterRun:
+    def _forecast_cov(self, xs, ps, mu, t):
+        """Ковариация прогноза по горизонтали (H, 2, 2): смесь моделей с весами mu @ P^h."""
+        out = np.zeros((self.horizon, 2, 2))
+        means, covs = [], []
+        for model, x, p in zip(self.models, xs, ps):
+            m_path, c_path = [], []
+            for _ in range(self.horizon):
+                f = model.jac(x, t)
+                x = model.f(x, t)
+                p = f @ p @ f.T + model.q(t)
+                m_path.append(x[[X, Y]])
+                c_path.append(p[np.ix_([X, Y], [X, Y])])
+            means.append(m_path)
+            covs.append(c_path)
+        means, covs = np.array(means), np.array(covs)   # (M, H, 2), (M, H, 2, 2)
+        for h in range(self.horizon):
+            w = mu @ self.p_pow[h]
+            mean = w @ means[:, h]
+            d = means[:, h] - mean
+            out[h] = np.einsum("m,mij->ij", w, covs[:, h] + d[:, :, None] * d[:, None, :])
+        return out
+
+    def run(self, rt: RadarTrack, with_cov: bool = False) -> FilterRun:
         k_total = len(rt.t)
         est = np.full((k_total, DIM), np.nan)
         mu_out = np.full((k_total, self.m), np.nan)
         innov = np.full((k_total, 3), np.nan)
         nis = np.full((k_total, self.m), np.nan)
         forecast = np.full((k_total, self.horizon, 3), np.nan)
+        fcov = np.full((k_total, self.horizon, 2, 2), np.nan) if with_cov else None
 
         det = np.flatnonzero(rt.detected)
         if len(det) < 2:
-            return FilterRun(est, mu_out, innov, nis, forecast)
+            return FilterRun(est, mu_out, innov, nis, forecast, fcov)
         k0, k1 = det[0], det[1]
         x, p = self._init_state(rt.meas[k0], rt.meas[k1], rt.meas_cov[k0], rt.meas_cov[k1],
                                 rt.t[k1] - rt.t[k0])
@@ -117,6 +145,8 @@ class IMM:
         est[k1] = x
         mu_out[k1] = mu
         forecast[k1] = self._forecast(xs, mu, config.SCAN_PERIOD)
+        if with_cov:
+            fcov[k1] = self._forecast_cov(xs, ps, mu, config.SCAN_PERIOD)
 
         for k in range(k1 + 1, k_total):
             dt = rt.t[k] - t_prev
@@ -168,4 +198,6 @@ class IMM:
             est[k] = sum(mu[j] * xs[j] for j in range(self.m))
             mu_out[k] = mu
             forecast[k] = self._forecast(xs, mu, config.SCAN_PERIOD)
-        return FilterRun(est, mu_out, innov, nis, forecast)
+            if with_cov:
+                fcov[k] = self._forecast_cov(xs, ps, mu, config.SCAN_PERIOD)
+        return FilterRun(est, mu_out, innov, nis, forecast, fcov)
