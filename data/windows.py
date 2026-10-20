@@ -21,6 +21,9 @@
 Окна сквозных моделей (без IMM, этап 3) - build_windows_e2e: те же обзоры k, только
 отметки РЛС; цель - смещение от последней отметки. Проверяется на этапе 3: нулевое
 смещение даёт прогноз «последняя отметка», признаки причинные.
+
+Метки начала маневра (этап 5) - onset_labels. Проверяется на этапе 5 на подставной
+трассе с известными началами маневров.
 """
 
 import numpy as np
@@ -181,4 +184,18 @@ def apply_e2e(rt, ks: np.ndarray, psi: np.ndarray, disp: np.ndarray,
     out = np.full((len(rt.t), horizon, 3), np.nan)
     out[ks, :, :2] = rt.meas[ks][:, None, :2] + to_global(disp.astype(float), psi[:, None])
     out[ks, :, 2] = rt.meas[ks][:, None, 2]
+    return out
+
+
+def onset_labels(rt, ks: np.ndarray, ahead: int = config.ONSET_AHEAD,
+                 behind: int = config.ONSET_BEHIND) -> np.ndarray:
+    """
+    Метка начала маневра в обзорах ks (этап 5): 1, если есть начало маневра o (по
+    разметке истины) с o - ahead <= k <= o + behind. Это цель, а не признак: метка
+    смотрит в будущее, во входы сети не подаётся.
+    """
+    ks = np.asarray(ks)
+    out = np.zeros(len(ks), dtype=np.float32)
+    for o in rt.onsets:
+        out[(ks >= o - ahead) & (ks <= o + behind)] = 1.0
     return out

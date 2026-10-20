@@ -41,6 +41,9 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
            шаг final -> несколько seed, оценка val / test / holdout, results/stage4/
    этап 4б: tuning/arch_search.py (NSGA-II, 2 цели) -> cache/stage4/arch_best.json,
            фронт Парето и итог на test -> results/stage4b/
+   дополнение этапа 4: run_stage4_baselines.py - подбор KF и CV -> results/stage4_baselines/
+   этап 5: data/windows.onset_labels (метка начала маневра) + models/onset.py (GRU, две головы)
+           -> обнаружители (сеть, вероятность CT, NIS CV) и прогноз -> results/stage5/
 ```
 
 ## Модули
@@ -63,12 +66,12 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `filters/models.py` | Модели CV, CA, CT на общем векторе `[x, y, z, vx, vy, vz, ax, ay, w]` | есть |
 | `filters/imm.py` | IMM и прогноз на 1..H; с одной моделью - фильтр Калмана | есть |
 | `filters/extrapolation.py` | Линейная экстраполяция по последним отметкам | есть |
-| `eval/metrics.py` | Единые метрики и динамическая ошибка | есть |
+| `eval/metrics.py` | Единые метрики и динамическая ошибка; метрики обнаружения начала маневра (этап 5): средняя точность, порог по F1, события, опережение, ложные тревоги, отклик | есть |
 | `viz/filter_plots.py` | Рисунки этапа 1 | есть |
 | `run_stage1.py` | Этап 1 | есть |
-| `data/windows.py` | Нарезка окон (единственное место), система курса, `apply_correction` | есть |
+| `data/windows.py` | Нарезка окон (единственное место), система курса, `apply_correction`, `onset_labels` (метка начала маневра, этап 5) | есть |
 | `training/dataset.py` | Сборка окон с кэшем и подписью параметров, `Normalizer` | есть |
-| `training/trainer.py` | Обучение, ранняя остановка, overfit one batch, `predict` | есть |
+| `training/trainer.py` | Обучение, ранняя остановка, overfit one batch (dropout отключается), `predict`; `loss_fn` - своя функция потерь (этап 5), по умолчанию MSE | есть |
 | `models/__init__.py` | Реестр `CORRECTORS`: GRU, LSTM, Transformer, Mamba | есть |
 | `models/gru.py`, `models/lstm.py` | Рекуррентные корректоры | есть |
 | `models/transformer.py` | Кодировщик Transformer, токен - обзор, позиционное кодирование обучаемое | есть |
@@ -84,6 +87,9 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `models/stack.py` | `StackCorrector`: стопка блоков GRU / LSTM / Mamba / Attention с остаточными связями (этап 4б) | есть |
 | `tuning/arch_search.py` | Геном архитектуры, две цели (ADE, время прогноза), важность групп признаков и типов блоков | есть |
 | `run_stage4b.py` | Этап 4б: `--phase search / final / all`, `--smoke`, `--trials`. Нужен `cache/stage4/imm_best.json` | есть |
+| `run_stage4_baselines.py` | Дополнение этапа 4: генетический подбор KF (`TUNE_KF_SPACE`) и перебор числа отметок CV (`TUNE_CV_POINTS`) с той же целью и бюджетом, что у IMM; без GPU | есть |
+| `models/onset.py` | `OnsetGRU` - GRU с головами поправки и начала маневра (выход 2H + 1), `multitask_loss` (MSE + BCE) | есть |
+| `run_stage5.py` | Этап 5: прогноз начала маневра, сравнение с обнаружителями по IMM, GRU с головой и без; `--smoke`. Нужны `imm_best.json` и `best_params.json` этапа 4 | есть |
 | `predict.py` | Итоговая программа | план |
 
 **Кэш этапа 0** (`cache/stage0/`) - вход следующих этапов:

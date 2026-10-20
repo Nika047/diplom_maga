@@ -35,19 +35,30 @@ def predict(model: nn.Module, x: np.ndarray, device: torch.device, batch: int = 
     return np.concatenate(out) if out else np.zeros((0,) + tuple(model.head.bias.shape))
 
 
+def _mse_loss(pred: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    return ((pred - y) ** 2).mean()
+
+
 @torch.no_grad()
-def mse(model: nn.Module, x: np.ndarray, y: np.ndarray, device: torch.device, batch: int = 4096) -> float:
+def mse(model: nn.Module, x: np.ndarray, y: np.ndarray, device: torch.device, batch: int = 4096,
+        loss_fn=None) -> float:
+    """Средний loss на наборе. loss_fn(pred, y) - своя функция потерь (этап 5), по умолчанию MSE."""
     model.eval()
     total, n = 0.0, 0
     for idx in _batches(len(x), batch):
         pred = model(torch.from_numpy(x[idx]).to(device))
-        total += float(((pred - torch.from_numpy(y[idx]).to(device)) ** 2).sum())
-        n += pred.numel()
+        yb = torch.from_numpy(y[idx]).to(device)
+        if loss_fn is None:
+            total += float(((pred - yb) ** 2).sum())
+            n += pred.numel()
+        else:
+            total += float(loss_fn(pred, yb)) * len(idx)
+            n += len(idx)
     return total / max(n, 1)
 
 
 def overfit_one_batch(model: nn.Module, x: np.ndarray, y: np.ndarray, steps: int, lr: float,
-                      device: torch.device) -> tuple:
+                      device: torch.device, loss_fn=None) -> tuple:
     """Обучение на одном батче. Возвращает (loss в начале, loss в конце).
 
     Dropout на время проверки отключается: это регуляризация, она мешает запомнить
@@ -62,10 +73,11 @@ def overfit_one_batch(model: nn.Module, x: np.ndarray, y: np.ndarray, steps: int
             setattr(mod, attr, 0.0)
     xb, yb = torch.from_numpy(x).to(device), torch.from_numpy(y).to(device)
     opt = torch.optim.Adam(model.parameters(), lr=lr)
+    loss_fn = loss_fn or _mse_loss
     first = last = None
     for _ in range(steps):
         opt.zero_grad()
-        loss = ((model(xb) - yb) ** 2).mean()
+        loss = loss_fn(model(xb), yb)
         loss.backward()
         opt.step()
         first = float(loss.detach()) if first is None else first
@@ -76,15 +88,18 @@ def overfit_one_batch(model: nn.Module, x: np.ndarray, y: np.ndarray, steps: int
 
 
 def train(model: nn.Module, x_tr, y_tr, x_val, y_val, params: dict, device: torch.device,
-          rng: np.random.Generator, quiet: bool = False) -> tuple:
-    """Возвращает (история по эпохам, лучшие веса). quiet - без строки на каждую эпоху (подбор)."""
+          rng: np.random.Generator, quiet: bool = False, loss_fn=None) -> tuple:
+    """
+    Возвращает (история по эпохам, лучшие веса). quiet - без строки на каждую эпоху
+    (подбор). loss_fn(pred, y) - своя функция потерь, по умолчанию MSE.
+    """
     log = get_logger()
     log_epoch = log.debug if quiet else log.info
     model.to(device)
     opt = torch.optim.AdamW(model.parameters(), lr=params["lr"], weight_decay=params.get("weight_decay", 1e-4))
     history = []
     best_val, best_state, bad = float("inf"), None, 0
-    val0 = mse(model, x_val, y_val, device)
+    val0 = mse(model, x_val, y_val, device, loss_fn=loss_fn)
     log_epoch("val loss до обучения (нулевой выход: у гибрида = IMM): %.4f", val0)
     for epoch in range(1, params["epochs"] + 1):
         model.train()
@@ -94,14 +109,14 @@ def train(model: nn.Module, x_tr, y_tr, x_val, y_val, params: dict, device: torc
             xb = torch.from_numpy(x_tr[idx]).to(device, non_blocking=True)
             yb = torch.from_numpy(y_tr[idx]).to(device, non_blocking=True)
             opt.zero_grad()
-            loss = ((model(xb) - yb) ** 2).mean()
+            loss = (loss_fn or _mse_loss)(model(xb), yb)
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), params.get("clip", 1.0))
             opt.step()
             total += float(loss.detach()) * len(idx)
             n += len(idx)
         train_loss = total / max(n, 1)
-        val_loss = mse(model, x_val, y_val, device)
+        val_loss = mse(model, x_val, y_val, device, loss_fn=loss_fn)
         history.append({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss,
                         "seconds": time.time() - t0})
         log_epoch("эпоха %3d: train %.4f, val %.4f, %.1f с", epoch, train_loss, val_loss, time.time() - t0)

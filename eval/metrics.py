@@ -127,3 +127,116 @@ def dynamic_stats(ms: np.ndarray, curve: np.ndarray, level: float) -> dict:
             break
     return {"peak": float(c_after[i_peak]), "peak_m": float(m_after[i_peak]),
             "area": float(c_after[area_sel].mean()), "recovery": recovery}
+
+
+# ============================================================================
+# Начало маневра (этап 5)
+# ============================================================================
+# Обнаружитель выдаёт оценку (score) в каждом обзоре с окном; тревога - score >= порога.
+# Метка обзора - data/windows.onset_labels. Обнаружители сравниваются при одинаковой
+# вероятности ложной тревоги: порог выбирается на val (threshold_at_false_alarm).
+# «Спокойный» обзор - участок "straight" вне интервала метки любого начала маневра:
+# тревога в нём ложная.
+
+def average_precision(score: np.ndarray, label: np.ndarray) -> float:
+    """Средняя точность - площадь под кривой «точность - полнота» по обзорам, без порога."""
+    order = np.argsort(-score, kind="stable")
+    lab = label[order] > 0.5
+    if not lab.any():
+        return float("nan")
+    precision = np.cumsum(lab) / np.arange(1, len(lab) + 1)
+    return float(precision[lab].sum() / lab.sum())
+
+
+def binary_scores(alarm: np.ndarray, label: np.ndarray) -> dict:
+    """Точность, полнота и F1 тревог по обзорам."""
+    lab = label > 0.5
+    tp = float((alarm & lab).sum())
+    precision = tp / alarm.sum() if alarm.any() else float("nan")
+    recall = tp / lab.sum() if lab.any() else float("nan")
+    f1 = 2 * tp / (alarm.sum() + lab.sum()) if (alarm.any() or lab.any()) else float("nan")
+    return {"precision": precision, "recall": recall, "f1": f1}
+
+
+def _quiet(rt, ks: np.ndarray, ahead: int, behind: int) -> np.ndarray:
+    """Спокойные обзоры среди ks: прямая вне интервалов o - ahead .. o + behind."""
+    near = np.zeros(len(ks), dtype=bool)
+    for o in rt.onsets:
+        near |= (ks >= o - ahead) & (ks <= o + behind)
+    return (rt.phase[ks] == PHASE_CODE["straight"]) & ~near
+
+
+def threshold_at_false_alarm(tracks: list, p_fa: float = config.ONSET_P_FA, ahead: int = config.ONSET_AHEAD,
+                             behind: int = config.ONSET_BEHIND) -> float:
+    """
+    Порог, при котором тревога горит не больше чем в доле p_fa спокойных обзоров
+    (вероятность ложной тревоги на обзор). tracks - как в onset_events.
+    """
+    neg = np.sort(np.concatenate([np.asarray(s)[_quiet(rt, np.asarray(ks), ahead, behind)]
+                                  for rt, ks, s in tracks]))[::-1]
+    if len(neg) == 0:
+        return float("nan")
+    allowed = int(np.floor(p_fa * len(neg)))
+    return float(np.nextafter(neg[min(allowed, len(neg) - 1)], np.inf))  # тревога строго выше этого значения
+
+
+def _covered_onsets(rt, ks: np.ndarray, ahead: int, behind: int) -> list:
+    """Начала маневров, у которых все обзоры o - ahead .. o + behind есть в ks."""
+    have = set(int(k) for k in ks)
+    return [o for o in rt.onsets if all(k in have for k in range(o - ahead, o + behind + 1))]
+
+
+def onset_events(tracks: list, threshold: float, ahead: int = config.ONSET_AHEAD,
+                 behind: int = config.ONSET_BEHIND, late: int = config.ONSET_DETECT_LATE) -> dict:
+    """
+    Оценка по событиям. tracks - [(RadarTrack, обзоры ks, score в этих обзорах)].
+    Эпизод тревоги - подряд идущие тревожные обзоры; его начало - первый из них.
+      recall - доля начал маневров o, у которых эпизод тревоги начался в
+             o - ahead .. o + late (late шире интервала метки: видна и поздняя реакция
+             классических обнаружителей). Тревога, горевшая ещё до интервала, не считается:
+             это не реакция на этот маневр (иначе обнаружитель, который почти всегда
+             в тревоге, получал бы полноту 1 и опережение ahead);
+      lead - опережение в обзорах: o минус начало первого такого эпизода (больше нуля -
+             до начала маневра, меньше - с задержкой);
+      p_fa - доля спокойных обзоров с тревогой (вероятность ложной тревоги);
+      false_per_hour - эпизоды, начавшиеся в спокойных обзорах, на час спокойного полёта.
+    """
+    leads, n_onsets, false_eps, false_scans, quiet_scans = [], 0, 0, 0, 0
+    for rt, ks, score in tracks:
+        ks = np.asarray(ks)
+        alarm = score >= threshold
+        starts = alarm & ~np.r_[False, alarm[:-1] & (np.diff(ks) == 1)]
+        pos = {int(k): i for i, k in enumerate(ks)}
+        for o in _covered_onsets(rt, ks, ahead, late):
+            n_onsets += 1
+            hit = [k for k in range(o - ahead, o + late + 1) if starts[pos[k]]]
+            if hit:
+                leads.append(o - hit[0])
+        quiet = _quiet(rt, ks, ahead, behind)
+        quiet_scans += int(quiet.sum())
+        false_scans += int((alarm & quiet).sum())
+        false_eps += int((starts & quiet).sum())
+    leads = np.array(leads, dtype=float)
+    hours = quiet_scans * config.SCAN_PERIOD / 3600.0
+    return {"n_onsets": n_onsets, "recall": len(leads) / n_onsets if n_onsets else float("nan"),
+            "lead_mean": float(leads.mean()) if len(leads) else float("nan"),
+            "lead_median": float(np.median(leads)) if len(leads) else float("nan"),
+            "early_share": float((leads > 0).mean()) if len(leads) else float("nan"),
+            "p_fa": false_scans / quiet_scans if quiet_scans else float("nan"),
+            "false_per_hour": false_eps / hours if hours > 0 else float("nan")}
+
+
+def alarm_response(tracks: list, threshold: float, offsets=config.DYN_OFFSETS) -> tuple:
+    """Доля тревог в обзорах o + m относительно начала маневра: (m, доля, число маневров)."""
+    ms = np.arange(offsets[0], offsets[1] + 1)
+    hits = np.zeros(len(ms))
+    counts = np.zeros(len(ms), dtype=int)
+    for rt, ks, score in tracks:
+        pos = {int(k): i for i, k in enumerate(ks)}
+        for o in rt.onsets:
+            for i, m in enumerate(ms):
+                if o + m in pos:
+                    hits[i] += float(score[pos[o + m]] >= threshold)
+                    counts[i] += 1
+    with np.errstate(invalid="ignore"):
+        return ms, hits / counts, counts
