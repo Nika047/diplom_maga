@@ -252,7 +252,7 @@ def main() -> int:
                               f"loss {first:.4f} -> {last:.4f}")
             rng = make_rng("training", seed)
             torch.manual_seed(seed)
-            model = OnsetGRU(x_tr.shape[-1], config.HORIZON_SCANS, **hp)
+            model = OnsetGRU(x_tr.shape[-1], config.HORIZON_SCANS, **hp).to(device)
             if s_i == 0:
                 zero = np.abs(predict(model, x_val[:256], device)[:, :n_out]).max()
                 summary.check(f"{MULTI}: до обучения поправка нулевая (= IMM)", zero == 0.0,
