@@ -86,7 +86,7 @@ def train(model: nn.Module, x_tr, y_tr, x_val, y_val, params: dict, device: torc
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), params.get("clip", 1.0))
             opt.step()
-            total += float(loss) * len(idx)
+            total += float(loss.detach()) * len(idx)
             n += len(idx)
         train_loss = total / max(n, 1)
         val_loss = mse(model, x_val, y_val, device)
