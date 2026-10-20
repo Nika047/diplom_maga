@@ -73,6 +73,22 @@ def to_global(vec: np.ndarray, psi: np.ndarray) -> np.ndarray:
     return out
 
 
+def held(rt) -> tuple:
+    """
+    Отметка и полярные координаты, доступные в каждом обзоре (этап 6а): при пропуске
+    удерживается последняя полученная отметка, до первой - nan. Без пропусков совпадают
+    с rt.meas и rt.polar, поэтому признаки этапов 2-5 не меняются.
+    """
+    det = np.asarray(rt.detected, dtype=bool)
+    if det.all():
+        return rt.meas, rt.polar
+    last = np.where(det, np.arange(len(det)), -1)
+    last = np.maximum.accumulate(last)
+    meas = np.where((last >= 0)[:, None], rt.meas[np.maximum(last, 0)], np.nan)
+    polar = np.where((last >= 0)[:, None], rt.polar[np.maximum(last, 0)], np.nan)
+    return meas, polar
+
+
 def build_windows(rt, run, window: int = config.WINDOW_SCANS, horizon: int = config.HORIZON_SCANS,
                   with_target: bool = True) -> dict:
     """
@@ -92,10 +108,11 @@ def build_windows(rt, run, window: int = config.WINDOW_SCANS, horizon: int = con
     if len(ks) == 0:
         return _empty(window, horizon, run.mu.shape[1], with_target)
 
-    innov = np.nan_to_num(run.innov)
+    meas, polar = held(rt)
+    innov = np.nan_to_num(run.innov)          # при пропуске невязки нет - 0
     nis = np.log1p(np.nan_to_num(run.nis))
     mu = run.mu
-    rng_km = rt.polar[:, 0:1] / 1000.0
+    rng_km = polar[:, 0:1] / 1000.0
 
     idx = ks[:, None] + np.arange(-window + 1, 1)[None, :]       # (N, W)
     est_k = run.est[ks]                                            # (N, 9)
@@ -103,7 +120,7 @@ def build_windows(rt, run, window: int = config.WINDOW_SCANS, horizon: int = con
     psi_w = psi[:, None]
     origin = est_k[:, POS][:, None, :]                             # (N, 1, 3)
     feats = [
-        to_local(rt.meas[idx] - origin, psi_w),
+        to_local(meas[idx] - origin, psi_w),
         to_local(run.est[idx][..., POS] - origin, psi_w),
         to_local(run.est[idx][..., VEL], psi_w),
         to_local(innov[idx], psi_w),
@@ -151,7 +168,8 @@ def build_windows_e2e(rt, ks: np.ndarray, window: int = config.WINDOW_SCANS,
     для сравнения). Система - по курсу, оценённому прямой по последним CV_LS_POINTS
     отметкам; начало - отметка в обзоре k.
 
-    Признаки обзора j: отметка j - отметка k (3), дальность до РЛС, км (1).
+    Признаки обзора j: отметка j - отметка k (3), дальность до РЛС, км (1). При
+    пропуске - последняя полученная отметка (held).
     Цель - смещение истины(k + h) от отметки k по горизонтали (H, 2), а не поправка.
     """
     ks = np.asarray(ks, dtype=int)
@@ -160,30 +178,35 @@ def build_windows_e2e(rt, ks: np.ndarray, window: int = config.WINDOW_SCANS,
         if with_target:
             out["y"] = np.zeros((0, horizon, 2), np.float32)
         return out
+    meas, polar = held(rt)
     n_ls = config.CV_LS_POINTS
     ls_idx = ks[:, None] + np.arange(-n_ls + 1, 1)[None, :]
     tt = (np.arange(n_ls) - (n_ls - 1)) * config.SCAN_PERIOD
     tc = tt - tt.mean()
-    vel = (tc[None, :, None] * rt.meas[ls_idx][..., :2]).sum(axis=1) / (tc ** 2).sum()  # (N, 2) МНК-наклон
+    vel = (tc[None, :, None] * meas[ls_idx][..., :2]).sum(axis=1) / (tc ** 2).sum()  # (N, 2) МНК-наклон
     psi = np.arctan2(vel[:, 0], vel[:, 1])
     idx = ks[:, None] + np.arange(-window + 1, 1)[None, :]
-    origin = rt.meas[ks][:, None, :]
-    x = np.concatenate([to_local(rt.meas[idx] - origin, psi[:, None]),
-                        rt.polar[idx][..., 0:1] / 1000.0], axis=-1).astype(np.float32)
+    origin = meas[ks][:, None, :]
+    x = np.concatenate([to_local(meas[idx] - origin, psi[:, None]),
+                        polar[idx][..., 0:1] / 1000.0], axis=-1).astype(np.float32)
     out = {"x": x, "k": ks, "psi": psi}
     if with_target:
         h = np.arange(1, horizon + 1)
-        disp = rt.truth[ks[:, None] + h[None, :], :2] - rt.meas[ks][:, None, :2]
+        disp = rt.truth[ks[:, None] + h[None, :], :2] - meas[ks][:, None, :2]
         out["y"] = to_local(disp, psi[:, None]).astype(np.float32)
     return out
 
 
 def apply_e2e(rt, ks: np.ndarray, psi: np.ndarray, disp: np.ndarray,
               horizon: int = config.HORIZON_SCANS) -> np.ndarray:
-    """Прогноз сквозной модели (K, H, 3): отметка k + смещение; высота - отметки k; вне ks - nan."""
+    """
+    Прогноз сквозной модели (K, H, 3): отметка k + смещение; высота - отметки k; вне ks -
+    nan. При пропуске в k - от последней полученной отметки (held).
+    """
+    meas, _ = held(rt)
     out = np.full((len(rt.t), horizon, 3), np.nan)
-    out[ks, :, :2] = rt.meas[ks][:, None, :2] + to_global(disp.astype(float), psi[:, None])
-    out[ks, :, 2] = rt.meas[ks][:, None, 2]
+    out[ks, :, :2] = meas[ks][:, None, :2] + to_global(disp.astype(float), psi[:, None])
+    out[ks, :, 2] = meas[ks][:, None, 2]
     return out
 
 

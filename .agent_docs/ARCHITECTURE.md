@@ -44,6 +44,7 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
    дополнение этапа 4: run_stage4_baselines.py - подбор KF и CV -> results/stage4_baselines/
    этап 5: data/windows.onset_labels (метка начала маневра) + models/onset.py (GRU, две головы)
            -> обнаружители (сеть, вероятность CT, NIS CV) и прогноз -> results/stage5/
+   этап 6а: RADAR_PD из PD_LEVELS, окна с удержанием отметки (held) -> results/stage6a/
 ```
 
 ## Модули
@@ -69,7 +70,7 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `eval/metrics.py` | Единые метрики и динамическая ошибка; метрики обнаружения начала маневра (этап 5): средняя точность, порог по F1, события, опережение, ложные тревоги, отклик | есть |
 | `viz/filter_plots.py` | Рисунки этапа 1 | есть |
 | `run_stage1.py` | Этап 1 | есть |
-| `data/windows.py` | Нарезка окон (единственное место), система курса, `apply_correction`, `onset_labels` (метка начала маневра, этап 5) | есть |
+| `data/windows.py` | Нарезка окон (единственное место), система курса, `apply_correction`, `onset_labels` (метка начала маневра, этап 5), `held` (последняя полученная отметка при пропуске, этап 6а) | есть |
 | `training/dataset.py` | Сборка окон с кэшем и подписью параметров, `Normalizer` | есть |
 | `training/trainer.py` | Обучение, ранняя остановка, overfit one batch (dropout отключается), `predict`; `loss_fn` - своя функция потерь (этап 5), по умолчанию MSE | есть |
 | `models/__init__.py` | Реестр `CORRECTORS`: GRU, LSTM, Transformer, Mamba | есть |
@@ -89,6 +90,7 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `run_stage4b.py` | Этап 4б: `--phase search / final / all`, `--smoke`, `--trials`. Нужен `cache/stage4/imm_best.json` | есть |
 | `run_stage4_baselines.py` | Дополнение этапа 4: генетический подбор KF (`TUNE_KF_SPACE`) и перебор числа отметок CV (`TUNE_CV_POINTS`) с той же целью и бюджетом, что у IMM; без GPU | есть |
 | `models/onset.py` | `OnsetGRU` - GRU с головами поправки и начала маневра (выход 2H + 1), `multitask_loss` (MSE + BCE) | есть |
+| `run_stage6a.py` | Этап 6а: пропуски отметок, P_d из `PD_LEVELS`; CV, KF, IMM и сети этапа 4, обученные при P_d = 1 и при каждом P_d; `--smoke`. Окна train - `cache/stage6a/train_w20_pdNNN.npz` | есть |
 | `run_stage5.py` | Этап 5: прогноз начала маневра, сравнение с обнаружителями по IMM, GRU с головой и без; `--smoke`. Нужны `imm_best.json` и `best_params.json` этапа 4 | есть |
 | `predict.py` | Итоговая программа | план |
 
