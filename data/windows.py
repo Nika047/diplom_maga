@@ -222,3 +222,51 @@ def onset_labels(rt, ks: np.ndarray, ahead: int = config.ONSET_AHEAD,
     for o in rt.onsets:
         out[(ks >= o - ahead) & (ks <= o + behind)] = 1.0
     return out
+
+
+# ============================================================================
+# Этап 6в: данные для других схем гибридизации (вариант Б)
+# ============================================================================
+
+def model_offsets(run, ks: np.ndarray, psi: np.ndarray, p_pow: np.ndarray) -> tuple:
+    """
+    Схема «сеть выбирает модель»: в обзорах ks - смещения прогнозов моделей IMM от
+    прогноза IMM в системе курса d (N, H, M, 2) и логарифмы весов IMM
+    log(mu_k P^h) (N, H, M). Прогноз IMM - сумма прогнозов моделей с этими весами,
+    поэтому sum_j w_j d_j = 0: при весах IMM поправка нулевая. run - прогон
+    IMM.run(with_models=True), p_pow - IMM.p_pow (H, M, M).
+    """
+    mf = run.model_forecast[ks]                                             # (N, M, H, 2)
+    d = mf - run.forecast[ks][:, None, :, :2]
+    d = to_local(d, psi[:, None, None]).transpose(0, 2, 1, 3)               # (N, H, M, 2)
+    w = np.einsum("nm,hmj->nhj", run.mu[ks], p_pow)
+    return d.astype(np.float32), np.log(np.maximum(w, 1e-12)).astype(np.float32)
+
+
+def sequence_arrays(rt) -> dict:
+    """
+    Схемы с сетью внутри фильтра: вся трасса по горизонтали - отметки z (K, 2),
+    ковариации отметок R (K, 2, 2), признак обнаружения (K,), истина (K, 2). Истина
+    нужна только для функции потерь, во вход сети не идёт.
+    """
+    return {"z": rt.meas[:, :2], "r": rt.meas_cov[:, :2, :2], "det": rt.detected.astype(np.float32),
+            "truth": rt.truth[:, :2]}
+
+
+def sequence_chunks(seqs: list, length: int, horizon: int = config.HORIZON_SCANS) -> tuple:
+    """
+    Куски трасс для обучения: длина length + horizon (на последних horizon обзорах
+    только истина для прогноза), шаг length. Координаты - от первой отметки куска.
+    Возвращает x (N, L + H, 7) = [z (2), R (4), обнаружение] и y (N, L + H, 2) - истина.
+    """
+    xs, ys = [], []
+    for s in seqs:
+        k_total = len(s["z"])
+        for start in range(0, k_total - length - horizon + 1, length):
+            sl = slice(start, start + length + horizon)
+            origin = s["z"][start]
+            xs.append(np.concatenate([s["z"][sl] - origin, s["r"][sl].reshape(-1, 4), s["det"][sl, None]], axis=1))
+            ys.append(s["truth"][sl] - origin)
+    if not xs:
+        return np.zeros((0, length + horizon, 7), np.float32), np.zeros((0, length + horizon, 2), np.float32)
+    return np.stack(xs).astype(np.float32), np.stack(ys).astype(np.float32)

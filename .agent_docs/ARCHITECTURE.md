@@ -46,6 +46,7 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
            -> обнаружители (сеть, вероятность CT, NIS CV) и прогноз -> results/stage5/
    этап 6а: RADAR_PD из PD_LEVELS, окна с удержанием отметки (held) -> results/stage6a/
    этап 6б: ковариация прогноза IMM + конформная калибровка на val -> стробы -> results/stage6b/
+   этап 6в: схемы A, Б1 (веса моделей IMM), Б2/Б3 (NeuralKF на кусках трасс) -> results/stage6c/
 ```
 
 ## Модули
@@ -66,12 +67,12 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `run_stage0.py` | Этап 0 | есть |
 | `radar/model.py` | Модель РЛС: положение РЛС на трассу, полярный шум, пропуски, пересчёт в ENU с ковариацией | есть |
 | `filters/models.py` | Модели CV, CA, CT на общем векторе `[x, y, z, vx, vy, vz, ax, ay, w]` | есть |
-| `filters/imm.py` | IMM и прогноз на 1..H; с одной моделью - фильтр Калмана; `run(with_cov=True)` - ковариация прогноза по горизонтали (этап 6б) | есть |
+| `filters/imm.py` | IMM и прогноз на 1..H; с одной моделью - фильтр Калмана; `run(with_cov=True)` - ковариация прогноза по горизонтали (этап 6б); `run(with_models=True)` - прогнозы отдельных моделей (этап 6в) | есть |
 | `filters/extrapolation.py` | Линейная экстраполяция по последним отметкам | есть |
 | `eval/metrics.py` | Единые метрики и динамическая ошибка; метрики обнаружения начала маневра (этап 5): средняя точность, порог по вероятности ложной тревоги, события, опережение, ложные тревоги, отклик; строб (этап 6б): конформный квантиль, расстояние Махаланобиса, покрытие и размер | есть |
 | `viz/filter_plots.py` | Рисунки этапа 1 | есть |
 | `run_stage1.py` | Этап 1 | есть |
-| `data/windows.py` | Нарезка окон (единственное место), система курса, `apply_correction`, `onset_labels` (метка начала маневра, этап 5), `held` (последняя полученная отметка при пропуске, этап 6а) | есть |
+| `data/windows.py` | Нарезка окон (единственное место), система курса, `apply_correction`, `onset_labels` (метка начала маневра, этап 5), `held` (последняя полученная отметка при пропуске, этап 6а), `model_offsets`, `sequence_arrays`, `sequence_chunks` (данные схем варианта Б, этап 6в) | есть |
 | `training/dataset.py` | Сборка окон с кэшем и подписью параметров, `Normalizer` | есть |
 | `training/trainer.py` | Обучение, ранняя остановка, overfit one batch (dropout отключается), `predict`; `loss_fn` - своя функция потерь (этап 5), по умолчанию MSE | есть |
 | `models/__init__.py` | Реестр `CORRECTORS`: GRU, LSTM, Transformer, Mamba | есть |
@@ -91,6 +92,8 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `run_stage4b.py` | Этап 4б: `--phase search / final / all`, `--smoke`, `--trials`. Нужен `cache/stage4/imm_best.json` | есть |
 | `run_stage4_baselines.py` | Дополнение этапа 4: генетический подбор KF (`TUNE_KF_SPACE`) и перебор числа отметок CV (`TUNE_CV_POINTS`) с той же целью и бюджетом, что у IMM; без GPU | есть |
 | `models/onset.py` | `OnsetGRU` - GRU с головами поправки и начала маневра (выход 2H + 1), `multitask_loss` (MSE + BCE) | есть |
+| `models/hybrids.py` | Вариант Б: `ModelWeightGRU` (сеть выбирает модель IMM), `NeuralKF` (фильтр Калмана CV на PyTorch с сетью в усилении или в шуме), функции потерь | есть |
+| `run_stage6c.py` | Этап 6в: схемы гибридизации A, Б1, Б2, Б3 на одних обзорах, 3 seed; `--smoke` | есть |
 | `run_stage6b.py` | Этап 6б: строб - четыре варианта области прогноза (IMM хи-квадрат, IMM конформный, гибрид круг и эллипс IMM), калибровка на val; `--smoke` | есть |
 | `run_stage6a.py` | Этап 6а: пропуски отметок, P_d из `PD_LEVELS`; CV, KF, IMM и сети этапа 4, обученные при P_d = 1 и при каждом P_d; `--smoke`. Окна train - `cache/stage6a/train_w20_pdNNN.npz` | есть |
 | `run_stage5.py` | Этап 5: прогноз начала маневра, сравнение с обнаружителями по IMM, GRU с головой и без; `--smoke`. Нужны `imm_best.json` и `best_params.json` этапа 4 | есть |
