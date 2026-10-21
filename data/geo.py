@@ -3,6 +3,8 @@
 
 Строгий пересчёт через геоцентрические координаты ECEF, без приближения
 плоской Земли. Проверка: точка на 1 км севернее начала даёт y около 1000 м.
+Обратный пересчёт (enu_to_geodetic) - для карты прогнозов программы predict.py;
+проверка - пересчёт туда и обратно возвращает исходные координаты.
 """
 
 import numpy as np
@@ -45,3 +47,27 @@ def local_step_m(lat1, lon1, lat2, lon2):
     dx = r * np.cos(lat_mid) * np.radians(np.asarray(lon2) - np.asarray(lon1))
     dy = r * np.radians(np.asarray(lat2) - np.asarray(lat1))
     return np.hypot(dx, dy)
+
+
+def ecef_to_geodetic(ecef: np.ndarray) -> tuple:
+    """(N, 3) ECEF -> широта, долгота (градусы), высота (м). Итерации по широте, сходятся за несколько шагов."""
+    x, y, z = ecef[:, 0], ecef[:, 1], ecef[:, 2]
+    lon = np.arctan2(y, x)
+    p = np.hypot(x, y)
+    lat = np.arctan2(z, p * (1.0 - _WGS84_E2))
+    for _ in range(6):
+        n = _WGS84_A / np.sqrt(1.0 - _WGS84_E2 * np.sin(lat) ** 2)
+        alt = p / np.cos(lat) - n
+        lat = np.arctan2(z, p * (1.0 - _WGS84_E2 * n / (n + alt)))
+    n = _WGS84_A / np.sqrt(1.0 - _WGS84_E2 * np.sin(lat) ** 2)
+    return np.degrees(lat), np.degrees(lon), p / np.cos(lat) - n
+
+
+def enu_to_geodetic(enu: np.ndarray, lat0: float, lon0: float, alt0: float) -> tuple:
+    """Обратное к geodetic_to_enu: (N, 3) ENU -> широта, долгота (градусы), высота (м)."""
+    la, lo = np.radians(lat0), np.radians(lon0)
+    e, n, u = enu[:, 0], enu[:, 1], enu[:, 2]
+    d = np.stack([-np.sin(lo) * e - np.sin(la) * np.cos(lo) * n + np.cos(la) * np.cos(lo) * u,
+                  np.cos(lo) * e - np.sin(la) * np.sin(lo) * n + np.cos(la) * np.sin(lo) * u,
+                  np.cos(la) * n + np.sin(la) * u], axis=1)
+    return ecef_to_geodetic(d + geodetic_to_ecef(np.array(lat0), np.array(lon0), np.array(alt0)))

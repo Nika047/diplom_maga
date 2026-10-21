@@ -57,7 +57,7 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `common/logging_setup.py` | Журнал в консоль и `log/<запуск>_<время>.log`, исключения и предупреждения - тоже в файл | есть |
 | `common/rng.py` | `make_rng(поток)` - именованные потоки из `RANDOM_SEED` (`config.RNG_STREAMS`, новые - только в конец) | есть |
 | `data/track.py` | `Track` - единый формат истины для логов и синтетики | есть |
-| `data/geo.py` | WGS84 -> ENU через ECEF | есть |
+| `data/geo.py` | WGS84 -> ENU через ECEF и обратно (`enu_to_geodetic` - для карты `predict.py`) | есть |
 | `data/flight_logs.py` | Чтение CSV, очистка, разрез на куски, ENU, перепривязка времени | есть |
 | `data/phases.py` | Кинематика, разметка участков, доли, `turn_omegas` | есть |
 | `data/splits.py` | Разбиение целыми логами, `save_splits` / `load_splits` | есть |
@@ -97,7 +97,7 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `run_stage6b.py` | Этап 6б: строб - четыре варианта области прогноза (IMM хи-квадрат, IMM конформный, гибрид круг и эллипс IMM), калибровка на val; `--smoke` | есть |
 | `run_stage6a.py` | Этап 6а: пропуски отметок, P_d из `PD_LEVELS`; CV, KF, IMM и сети этапа 4, обученные при P_d = 1 и при каждом P_d; `--smoke`. Окна train - `cache/stage6a/train_w20_pdNNN.npz` | есть |
 | `run_stage5.py` | Этап 5: прогноз начала маневра, сравнение с обнаружителями по IMM, GRU с головой и без; `--smoke`. Нужны `imm_best.json` и `best_params.json` этапа 4 | есть |
-| `predict.py` | Итоговая программа | план |
+| `predict.py` | Итоговая программа (этап 7): `--log` (лог полёта, отметки моделируются, ошибки по GPS) или `--radar` (файл отметок t, range_m, az_deg, el_deg); гибрид IMM+GRU этапа 4 и IMM; выход - `results/predict/<имя>/forecast.csv`, `report.html` (карта с ползунком по обзорам), `summary.txt`; `--save-radar`, `--pd`, `--smoke` | есть |
 
 **Кэш этапа 0** (`cache/stage0/`) - вход следующих этапов:
 - `tracks_real.pkl` - все куски, включая sim и excluded: фильтровать по
