@@ -254,7 +254,8 @@ def main() -> int:
                     torch.manual_seed(seed)
                     m = NeuralKF(mode, config.HYB_KF_SIGMA_A, config.HYB_HIDDEN)
                     first, last = overfit_one_batch(m, xs_tr[idx], ys_tr[idx], 100 if not args.smoke else 20,
-                                                    kf_lr[code], device, loss_fn=loss_kf)
+                                                    kf_lr[code], device, loss_fn=loss_kf,
+                                                    clip=kf_params.get("clip", 1.0))
                     summary.check(f"{NAMES[code]}: loss на одном батче падает", last < first,
                                   f"loss {first:.4f} -> {last:.4f}")
                 rng = make_rng("training", seed)

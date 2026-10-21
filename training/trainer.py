@@ -58,11 +58,14 @@ def mse(model: nn.Module, x: np.ndarray, y: np.ndarray, device: torch.device, ba
 
 
 def overfit_one_batch(model: nn.Module, x: np.ndarray, y: np.ndarray, steps: int, lr: float,
-                      device: torch.device, loss_fn=None) -> tuple:
+                      device: torch.device, loss_fn=None, clip: float = None) -> tuple:
     """Обучение на одном батче. Возвращает (loss в начале, loss в конце).
 
     Dropout на время проверки отключается: это регуляризация, она мешает запомнить
     батч, и при dropout 0,3 маленькая сеть не доходит до порога (этап 4б).
+    clip - ограничение нормы градиента, как в train. Нужно сетям внутри фильтра
+    (этап 6в): градиент через все шаги фильтра доходит до 1e5, и без ограничения loss
+    на одном батче не сходится.
     """
     model.to(device).train()
     saved = []
@@ -79,6 +82,8 @@ def overfit_one_batch(model: nn.Module, x: np.ndarray, y: np.ndarray, steps: int
         opt.zero_grad()
         loss = loss_fn(model(xb), yb)
         loss.backward()
+        if clip is not None:
+            nn.utils.clip_grad_norm_(model.parameters(), clip)
         opt.step()
         first = float(loss.detach()) if first is None else first
         last = float(loss.detach())
