@@ -22,6 +22,13 @@ IMM (Interacting Multiple Model) на моделях filters/models.py и про
 Прогнозы отдельных моделей (этап 6в, сеть пересчитывает веса моделей) - по запросу
 run(rt, with_models=True): те же пути, из которых складывается прогноз IMM.
 
+Встраивание сети (этап 6г), без него прогон не меняется:
+  - run(rt, mode_logit=...) - добавка к логарифмам вероятностей моделей в каждом обзоре
+    (схема Б4: сеть управляет переключением моделей);
+  - extra_models - дополнительные режимы (схема Б5: прогноз сети как режим IMM). У такой
+    модели может быть set_scan(k) - номер текущего обзора - и forecast_path(x) - свой
+    прогноз на 1..H обзоров вместо повторения f.
+
 Инициализация - по первым двум обнаруженным отметкам (скорость - разность).
 Сохраняются для этапа 2 (входы корректора): вероятности моделей, невязка
 объединённого прогноза, нормированный квадрат невязки каждой модели.
@@ -62,14 +69,14 @@ def transition_matrix(m: int, p_stay: float) -> np.ndarray:
 
 
 class IMM:
-    def __init__(self, model_names=None, mu0=None, p_stay=None, horizon: int = None):
+    def __init__(self, model_names=None, mu0=None, p_stay=None, horizon: int = None, extra_models=None):
         # Значения по умолчанию читаются из config в момент создания, а не при импорте:
         # этап 4 подменяет параметры IMM найденными генетическим алгоритмом.
         model_names = config.IMM_MODELS if model_names is None else model_names
         mu0 = config.IMM_MU0 if mu0 is None else mu0
         p_stay = config.IMM_P_STAY if p_stay is None else p_stay
         horizon = config.HORIZON_SCANS if horizon is None else horizon
-        self.models = make_models(model_names)
+        self.models = make_models(model_names) + list(extra_models or [])
         self.m = len(self.models)
         self.mu0 = np.asarray(mu0 if len(mu0) == self.m else [1.0 / self.m] * self.m, dtype=float)
         self.mu0 = self.mu0 / self.mu0.sum()
@@ -94,6 +101,9 @@ class IMM:
         """Прогноз положения каждой модели на 1..H обзоров (M, H, 3)."""
         paths = []
         for model, x in zip(self.models, xs):
+            if hasattr(model, "forecast_path"):
+                paths.append(model.forecast_path(x, t))
+                continue
             path = []
             for _ in range(self.horizon):
                 x = model.f(x, t)
@@ -131,7 +141,14 @@ class IMM:
             out[h] = np.einsum("m,mij->ij", w, covs[:, h] + d[:, :, None] * d[:, None, :])
         return out
 
-    def run(self, rt: RadarTrack, with_cov: bool = False, with_models: bool = False) -> FilterRun:
+    def _set_scan(self, k: int) -> None:
+        for model in self.models:
+            if hasattr(model, "set_scan"):
+                model.set_scan(k)
+
+    def run(self, rt: RadarTrack, with_cov: bool = False, with_models: bool = False,
+            mode_logit: np.ndarray = None) -> FilterRun:
+        """mode_logit - (K, M) добавка к логарифмам вероятностей моделей после обновления (nan - нет)."""
         k_total = len(rt.t)
         est = np.full((k_total, DIM), np.nan)
         mu_out = np.full((k_total, self.m), np.nan)
@@ -161,11 +178,13 @@ class IMM:
         t_prev = rt.t[k1]
         est[k1] = x
         mu_out[k1] = mu
+        self._set_scan(k1)
         forecast_at(k1, xs, ps, mu)
 
         for k in range(k1 + 1, k_total):
             dt = rt.t[k] - t_prev
             t_prev = rt.t[k]
+            self._set_scan(k)
             # 1. Смешивание
             c = mu @ self.p
             mix = (self.p * mu[:, None]) / np.maximum(c[None, :], 1e-300)  # mix[i, j] = P(i | j)
@@ -209,6 +228,9 @@ class IMM:
                 for j, (xp, pp) in enumerate(preds):
                     xs[j], ps[j] = xp, pp
                 mu = c
+            if mode_logit is not None and not np.isnan(mode_logit[k]).any() and np.ptp(mode_logit[k]) > 0:
+                mu = mu * np.exp(mode_logit[k] - mode_logit[k].max())
+                mu /= mu.sum()
             # 4. Объединённая оценка и прогноз
             est[k] = sum(mu[j] * xs[j] for j in range(self.m))
             mu_out[k] = mu

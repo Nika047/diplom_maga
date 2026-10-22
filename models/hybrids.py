@@ -19,8 +19,14 @@ NeuralKF - фильтр Калмана с моделью CV по горизон�
 KalmanNet - с одной линейной моделью; дифференцируемый IMM с нелинейной CT - вне этой
 работы.
 
+Этап 6г:
+  ModeGRU - классификатор маневра по окну признаков «тени» IMM (схема Б4: его выход
+            управляет вероятностями моделей рабочего IMM, filters/imm.py mode_logit);
+  WeightResidualGRU - схема A + Б1: веса моделей IMM и поправка к прогнозу одной сетью.
+
 Проверяется на этапе 6в: нулевая поправка до обучения (ModelWeightGRU = IMM), фильтр
-без сети близок к фильтру Калмана этапа 1, loss на одном батче падает.
+без сети близок к фильтру Калмана этапа 1, loss на одном батче падает. На этапе 6г -
+A + Б1 до обучения = IMM, Б4 при нулевой добавке = IMM.
 """
 
 import torch
@@ -152,4 +158,67 @@ def sequence_loss(burn: int, scale: float, horizon: int = config.HORIZON_SCANS):
         ks = torch.arange(burn, length - horizon, device=y.device)
         target = torch.stack([y[:, ks + h] for h in range(1, horizon + 1)], dim=2)   # (B, K, H, 2)
         return (((pred[:, ks] - target) / scale) ** 2).mean()
+    return loss
+
+
+# ============================================================================
+# Этап 6г
+# ============================================================================
+
+class ModeGRU(nn.Module):
+    """
+    Схема Б4: GRU по окну признаков гибрида оценивает, идёт ли маневр (логит P(разворот)).
+    Голова нулевая: до обучения P = 0,5, добавка к вероятностям моделей IMM одинакова для
+    всех моделей и ничего не меняет.
+    """
+
+    def __init__(self, n_features: int, hidden: int = config.CORRECTOR_HIDDEN, layers: int = config.CORRECTOR_LAYERS,
+                 dropout: float = config.CORRECTOR_DROPOUT):
+        super().__init__()
+        self.rnn = nn.GRU(n_features, hidden, num_layers=layers, batch_first=True,
+                          dropout=dropout if layers > 1 else 0.0)
+        self.head = nn.Linear(hidden, 1)
+        nn.init.zeros_(self.head.weight)
+        nn.init.zeros_(self.head.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out, _ = self.rnn(x)
+        return self.head(out[:, -1])
+
+
+def bce_loss(pred: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    return nn.functional.binary_cross_entropy_with_logits(pred, y)
+
+
+class WeightResidualGRU(nn.Module):
+    """
+    Схема A + Б1: одна GRU с двумя головами - поправка к весам моделей IMM (как Б1) и
+    поправка к получившемуся прогнозу (как A). Обе головы нулевые: до обучения = IMM.
+    Выход (N, H * M + 2H): логиты весов, затем поправка.
+    """
+
+    def __init__(self, n_features: int, horizon: int, n_models: int, hidden: int = config.CORRECTOR_HIDDEN,
+                 layers: int = config.CORRECTOR_LAYERS, dropout: float = config.CORRECTOR_DROPOUT):
+        super().__init__()
+        self.horizon, self.n_models = horizon, n_models
+        self.rnn = nn.GRU(n_features, hidden, num_layers=layers, batch_first=True,
+                          dropout=dropout if layers > 1 else 0.0)
+        self.head = nn.Linear(hidden, horizon * n_models + horizon * 2)
+        nn.init.zeros_(self.head.weight)
+        nn.init.zeros_(self.head.bias)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        out, _ = self.rnn(x)
+        return self.head(out[:, -1])
+
+
+def weight_residual_loss(horizon: int, n_models: int):
+    """MSE суммарной поправки; цель упакована как у model_weight_loss: [y (2H), d (2HM), log w (HM)]."""
+    def loss(pred: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+        n, a, b = len(y), 2 * horizon, 2 * horizon + 2 * horizon * n_models
+        hm = horizon * n_models
+        corr = model_weight_correction(pred[:, :hm], y[:, a:b].view(n, horizon, n_models, 2),
+                                       y[:, b:].view(n, horizon, n_models))
+        corr = corr + pred[:, hm:].view(n, horizon, 2)
+        return ((corr - y[:, :a].view(n, horizon, 2)) ** 2).mean()
     return loss

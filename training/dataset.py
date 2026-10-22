@@ -50,6 +50,23 @@ class WindowSet:
         return WindowSet(self.x_e2e, self.y_e2e, self.track, self.k, self.psi_e2e,
                          self.x_e2e, self.y_e2e, self.psi_e2e, self.flight_ids)
 
+    def subset_tracks(self, keep: np.ndarray) -> "WindowSet":
+        """Окна только трасс с номерами keep (этап 4в); номера трасс и flight_ids перенумеровываются."""
+        keep = np.asarray(keep, dtype=int)
+        new_index = np.full(len(self.flight_ids), -1)
+        new_index[keep] = np.arange(len(keep))
+        sel = new_index[self.track] >= 0
+        return WindowSet(self.x[sel], self.y[sel], new_index[self.track[sel]], self.k[sel], self.psi[sel],
+                         self.x_e2e[sel], self.y_e2e[sel], self.psi_e2e[sel], [self.flight_ids[i] for i in keep])
+
+
+def concat(sets: list) -> WindowSet:
+    """Объединение наборов окон (этап 4в); номера трасс сдвигаются."""
+    offsets = np.cumsum([0] + [len(s.flight_ids) for s in sets[:-1]])
+    parts = {f: np.concatenate([(getattr(s, f) + o) if f == "track" else getattr(s, f) for s, o in zip(sets, offsets)])
+             for f in _FIELDS}
+    return WindowSet(*(parts[f] for f in _FIELDS), [fid for s in sets for fid in s.flight_ids])
+
 
 def signature(flight_ids: list, window: int = config.WINDOW_SCANS) -> dict:
     keys = ("SCAN_PERIOD", "RADAR_SIGMA_R", "RADAR_SIGMA_AZ_DEG", "RADAR_SIGMA_EL_DEG", "RADAR_PD",
@@ -66,14 +83,17 @@ def signature(flight_ids: list, window: int = config.WINDOW_SCANS) -> dict:
     return sig
 
 
-def build(tracks: list, imm: IMM = None, window: int = config.WINDOW_SCANS) -> tuple:
-    """Окна по списку треков. Возвращает (WindowSet, список RadarTrack, список FilterRun)."""
+def build(tracks: list, imm: IMM = None, window: int = config.WINDOW_SCANS, run_kwargs: list = None) -> tuple:
+    """
+    Окна по списку треков. Возвращает (WindowSet, список RadarTrack, список FilterRun).
+    run_kwargs - аргументы IMM.run для каждого трека (этап 6г: mode_logit схемы Б4).
+    """
     imm = imm or IMM()
     parts = {name: [] for name in _FIELDS}
     rts, runs = [], []
     for i, tr in enumerate(tracks):
         rt = observe(tr)
-        run = imm.run(rt)
+        run = imm.run(rt, **(run_kwargs[i] if run_kwargs else {}))
         w = build_windows(rt, run, window=window)
         e = build_windows_e2e(rt, w["k"], window=window)
         rts.append(rt)
