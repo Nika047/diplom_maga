@@ -258,7 +258,7 @@ def main() -> int:
                                     ev["val"][1].reshape(len(ws_v), -1)], axis=1).astype(np.float32)
             loss_ab1 = weight_residual_loss(config.HORIZON_SCANS, n_models)
             torch.manual_seed(seed)
-            model = WeightResidualGRU(x_tr.shape[-1], config.HORIZON_SCANS, n_models, **hp)
+            model = WeightResidualGRU(x_tr.shape[-1], config.HORIZON_SCANS, n_models, **hp).to(device)
             hm = config.HORIZON_SCANS * n_models
 
             def ab1_correction(out, d, lw):

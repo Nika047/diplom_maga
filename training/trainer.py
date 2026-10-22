@@ -28,7 +28,9 @@ def _batches(n: int, batch: int, rng: np.random.Generator = None):
 
 @torch.no_grad()
 def predict(model: nn.Module, x: np.ndarray, device: torch.device, batch: int = 4096) -> np.ndarray:
-    model.eval()
+    # Модель переносится сюда же: необученная модель ещё на процессоре, а входы - на device
+    # (на рабочем ПК без GPU смоук этого не ловит, дома дважды падали этапы 5 и 6г)
+    model.to(device).eval()
     out = []
     for idx in _batches(len(x), batch):
         out.append(model(torch.from_numpy(x[idx]).to(device)).cpu().numpy())
