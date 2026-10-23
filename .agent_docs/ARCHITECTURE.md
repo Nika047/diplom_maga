@@ -96,6 +96,7 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `run_stage6c.py` | Этап 6в: схемы гибридизации A, Б1, Б2, Б3 на одних обзорах, 3 seed; `--smoke` | есть |
 | `run_stage4c.py` | Этап 4в: размер сети (`SCALE_HIDDEN` x `SCALE_LAYERS`) и объём синтетики (`SCALE_SYNTH`, новые партии - поток `synth_extra`, окна в `cache/stage4c/`); `--smoke`, `--only` | есть |
 | `run_stage4d.py` | Этап 4г: повтор ГА-подбора IMM+GRU на синтетике `--synth` (по умолчанию x4, 0 - только реальные), итог на 3 seed; база подбора - `cache/stage4d/optuna.db` | есть |
+| `run_stage8.py` | Этап 8: сгенерированный test (поток `synth_test`, доля `SYNTH_TEST_SHARE`) и реальный test на весах итога этапа 4 (`artifacts/stage4/`, 3 seed), без переобучения; `--smoke` | есть |
 | `run_stage6d.py` | Этап 6г: схемы Б4 (сеть управляет переключением IMM), Б4 + A, A + Б1, Б5 (прогноз сети - режим IMM); `--smoke` | есть |
 | `filters/neural_mode.py` | `NeuralMode` - прогноз сети как режим IMM (схема Б5) | есть |
 | `run_stage6b.py` | Этап 6б: строб - четыре варианта области прогноза (IMM хи-квадрат, IMM конформный, гибрид круг и эллипс IMM), калибровка на val; `--smoke` | есть |
