@@ -42,7 +42,7 @@ import config  # noqa: E402
 from common.logging_setup import setup_logging  # noqa: E402
 from data.windows import apply_correction, apply_e2e, build_windows, build_windows_e2e  # noqa: E402
 from eval.checks import StageSummary  # noqa: E402
-from eval.compare import compare, mask_forecast  # noqa: E402
+from eval.compare import compare, mask_forecast, source_section  # noqa: E402
 from filters.extrapolation import cv_extrapolate  # noqa: E402
 from filters.imm import IMM  # noqa: E402
 from radar.model import observe  # noqa: E402
@@ -60,8 +60,8 @@ SMOKE = {"epochs": 2, "patience": 2, "seeds": (42, 43), "levels": (1.0, 0.8)}
 
 STAGE = "stage6a"
 OUT_DIR = config.RESULTS_DIR / STAGE
-ART = config.PROJECT_DIR / "artifacts" / STAGE
-EVAL_SETS = ("val", "test", "holdout")
+ART = config.ARTIFACTS_DIR / STAGE
+EVAL_SETS = config.EVAL_SETS
 NETS = (("IMM+GRU", "GRU", "hybrid"), ("GRU (без IMM)", "GRU", "e2e"))
 CLASSIC = ("CV", "KF", "IMM")
 
@@ -250,6 +250,9 @@ def main() -> int:
                 f" {np.mean([r['ade'] for r in by_pd[pd]]) / base - 1:>+12.1%}" if pd in by_pd else f" {'-':>12s}"
                 for pd in levels))
         summary.section(f"{name}: рост ADE относительно P_d = 1 того же метода", lines)
+        for pd in levels:
+            source_section(summary, f"{name}, P_d = {pd:.1f}",
+                           {m: by_pd[pd] for m, by_pd in table[name].items() if pd in by_pd})
         plot_levels(table[name], levels, "ade", OUT_DIR / f"ade_vs_pd_{name}{tag}.png",
                     f"ADE при пропусках отметок, {name}")
         plot_levels(table[name], levels, "entry", OUT_DIR / f"entry_vs_pd_{name}{tag}.png",

@@ -45,7 +45,7 @@ from common.rng import make_rng  # noqa: E402
 from data import generator, phases  # noqa: E402
 from data.windows import apply_correction  # noqa: E402
 from eval.checks import StageSummary  # noqa: E402
-from eval.compare import mask_forecast  # noqa: E402
+from eval.compare import mask_forecast, source_section  # noqa: E402
 from run_stage0 import check_synth, compare_distributions, hours  # noqa: E402
 from run_stage4 import load_data, summarize_method  # noqa: E402
 from training import dataset  # noqa: E402
@@ -62,8 +62,8 @@ SMOKE = {"epochs": 2, "patience": 2, "seeds": (42, 43), "hidden": (32, 64), "lay
 
 STAGE = "stage4c"
 OUT_DIR = config.RESULTS_DIR / STAGE
-ART = config.PROJECT_DIR / "artifacts" / STAGE
-EVAL_SETS = ("val", "test", "holdout")
+ART = config.ARTIFACTS_DIR / STAGE
+EVAL_SETS = config.EVAL_SETS
 
 
 def extra_synth(n_batches: int, limits: generator.Limits, step: int) -> list:
@@ -198,7 +198,7 @@ def main() -> int:
             with search.config_override(imm):
                 res = run_experiment(f"{label}, seed {seed}", arch, "hybrid", ws_tr, built["val"][0], params, device,
                                      summary, log, args.smoke, OUT_DIR, ART, window=win, seed=seed, model_kwargs=hp,
-                                     overfit=s_i == 0, extra_sets={n: built[n][0] for n in ("test", "holdout")})
+                                     overfit=s_i == 0, extra_sets={n: built[n][0] for n in config.EVAL_SETS[1:]})
             rep = evaluate(res)
             reps.append(rep)
             results.append({"arch": arch, "hidden": hidden, "layers": layers, "frac": frac, "hours": synth_h,
@@ -249,17 +249,22 @@ def main() -> int:
     size_rows = group(lambda r: r["frac"] == 1.0)
     for title, rows, xs in (("данные (конфигурация этапа 4)", data_rows, "frac"),
                             ("размер сети (синтетика x1)", size_rows, "size")):
+        ho = "holdout" in config.EVAL_SETS
         lines = [f"{'арх.':12s} {'ширина':>6s} {'слоёв':>5s} {'синт.':>6s} {'парам.':>8s} {'val':>10s} {'test':>10s} "
-                 f"{'holdout':>10s} {'вход test':>10s} {'val/train':>9s} {'обуч., с':>8s}"]
+                 + (f"{'holdout':>10s} " if ho else "") + f"{'вход test':>10s} {'val/train':>9s} {'обуч., с':>8s}"]
         for (arch, hidden, layers, frac), rs in sorted(rows.items()):
             lines.append(f"{arch:12s} {hidden:6d} {layers:5d} {frac:6g} {rs[0]['n_params']:8d} {agg(rs, 'ade', 'val'):>10s} "
-                         f"{agg(rs, 'ade'):>10s} {agg(rs, 'ade', 'holdout'):>10s} {agg(rs, 'entry'):>10s} "
+                         f"{agg(rs, 'ade'):>10s} " + (f"{agg(rs, 'ade', 'holdout'):>10s} " if ho else "")
+                         + f"{agg(rs, 'entry'):>10s} "
                          f"{np.mean([r['gap'] for r in rs]):9.2f} {np.mean([r['seconds'] for r in rs]):8.0f}")
         summary.section(f"Ось «{title}»: ADE (м), среднее ± СКО по {len(seeds)} seed", lines + [
             "val/train - отношение val loss к train loss в лучшую эпоху (больше 1 - переобучение)"])
+        source_section(summary, f"test, ось «{title}»", {f"{arch} {hidden}x{layers}, синт. x{frac:g}": [r["test"] for r in rs]
+                                                       for (arch, hidden, layers, frac), rs in sorted(rows.items())})
     big_rows = group(lambda r: (r["hidden"], r["layers"]) == tuple(big) and r["frac"] == max(fractions))
     summary.section(f"Большая сеть {big[0]}x{big[1]} на наибольших данных (синтетика x{max(fractions):g})", [
-        f"{arch:12s} test {agg(rs, 'ade')}, holdout {agg(rs, 'ade', 'holdout')}, вход {agg(rs, 'entry')}"
+        f"{arch:12s} test {agg(rs, 'ade')}, "
+        + (f"holdout {agg(rs, 'ade', 'holdout')}, " if "holdout" in config.EVAL_SETS else "") + f"вход {agg(rs, 'entry')}"
         for (arch, _, _, _), rs in sorted(big_rows.items())])
 
     plot_axis([(a, r[0]["hours"] + hours(real), [x["test"]["ade"] for x in r]) for (a, _, _, _), r in data_rows.items()],

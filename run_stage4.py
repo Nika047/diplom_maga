@@ -22,7 +22,6 @@ test и holdout впервые используются здесь, в шаге 
 
 import argparse
 import json
-import pickle
 import sys
 import time
 from pathlib import Path
@@ -43,7 +42,7 @@ from data.phases import PHASE_CODE  # noqa: E402
 from data.windows import apply_correction, apply_e2e  # noqa: E402
 from eval import metrics  # noqa: E402
 from eval.checks import StageSummary  # noqa: E402
-from eval.compare import compare, mask_forecast  # noqa: E402
+from eval.compare import ade_by_source, compare, mask_forecast, source_section  # noqa: E402
 from filters.extrapolation import cv_extrapolate  # noqa: E402
 from filters.imm import IMM  # noqa: E402
 from radar.model import observe  # noqa: E402
@@ -66,23 +65,16 @@ EXPERIMENTS = [("IMM+LSTM", "LSTM", "hybrid"), ("IMM+GRU", "GRU", "hybrid"),
 STAGE = "stage4"
 OUT_DIR = config.RESULTS_DIR / STAGE
 CACHE = config.CACHE_DIR / STAGE
-ART = config.PROJECT_DIR / "artifacts" / STAGE
+ART = config.ARTIFACTS_DIR / STAGE
 CACHE0 = config.CACHE_DIR / "stage0"
 TURN_CODES = (PHASE_CODE["entry"], PHASE_CODE["turn"])
 
 
 def load_data(smoke: bool) -> dict:
-    with open(CACHE0 / "tracks_real.pkl", "rb") as fh:
-        real = pickle.load(fh)
-    with open(CACHE0 / "tracks_synth_train.pkl", "rb") as fh:
-        synth = pickle.load(fh)
-    splits = splits_mod.load_splits(CACHE0 / "splits.json")
-    sets = {name: [tr for tr in real if splits.get(tr.log_file) == name] for name in ("train", "val", "test", "holdout")}
-    sets["synth"] = synth
+    sets = splits_mod.load_sets(CACHE0)       # в варианте merged val и test включают сгенерированные траектории
     if smoke:
         sets["train"] = sets["train"][::SMOKE["real_step"]]
         sets["synth"] = sets["synth"][::SMOKE["synth_step"]]
-    sets["_splits"] = splits
     return sets
 
 
@@ -222,14 +214,18 @@ def phase_final(sets: dict, experiments: list, seeds: tuple, epochs: int, patien
         return False
 
     splits = sets["_splits"]
-    used = {name: {tr.log_file for tr in sets[name]} for name in ("train", "val", "test", "holdout")}
-    leak = (used["test"] | used["holdout"]) & (used["train"] | used["val"])
-    summary.check("test и holdout не пересекаются с train и val", not leak and used["test"] and used["holdout"],
-                  f"логов: test {len(used['test'])}, holdout {len(used['holdout'])}, пересечений {len(leak)}")
+    # Реальные - по логам, сгенерированные (log_file пуст) - по траекториям
+    used = {name: {tr.log_file or tr.flight_id for tr in sets[name]} for name in ("train", "val") + config.EVAL_SETS[1:]}
+    used["train"] |= {tr.flight_id for tr in sets["synth"]}
+    held = set().union(*(used[n] for n in config.EVAL_SETS[1:]))
+    leak = held & (used["train"] | used["val"])
+    summary.check(f"{' и '.join(config.EVAL_SETS[1:])} не пересекаются с train и val",
+                  not leak and all(used[n] for n in config.EVAL_SETS[1:]),
+                  ", ".join(f"{n} {len(used[n])}" for n in config.EVAL_SETS[1:]) + f"; пересечений {len(leak)}")
 
     windows = sorted({best_all[label]["params"]["window"] for label, _, _ in experiments})
     w_max = windows[-1]
-    eval_sets = ("val", "test", "holdout")
+    eval_sets = config.EVAL_SETS
     with search.config_override(imm):
         train_ws = {w: dataset.load_or_build(f"train{'_smoke' if smoke else ''}_w{w}", sets["train"] + sets["synth"],
                                              CACHE, window=w) for w in windows}
@@ -265,7 +261,7 @@ def phase_final(sets: dict, experiments: list, seeds: tuple, epochs: int, patien
                 key = f"{label}, seed {seed}"
                 res = run_experiment(key, corrector, mode, ws_tr, ws_val, params, device, summary, log, smoke,
                                      OUT_DIR, ART, window=window, seed=seed, model_kwargs=hp, overfit=s_i == 0,
-                                     extra_sets={n: built[(n, window)][0] for n in ("test", "holdout")})
+                                     extra_sets={n: built[(n, window)][0] for n in config.EVAL_SETS[1:]})
                 histories[key] = res["history"]
                 preds = {"val": res["pred"], **res["extra"]}
                 for name in eval_sets:
@@ -303,6 +299,7 @@ def phase_final(sets: dict, experiments: list, seeds: tuple, epochs: int, patien
                 row += " " + fmt.format(vals.mean(), vals.std())
             lines.append(row)
         summary.section(f"{name}: среднее ± СКО по {len(seeds)} seed (м){' - СМОУК' if smoke else ''}", lines)
+        source_section(summary, name, {"IMM": [base], **per_seed[name]})
 
     (OUT_DIR / "final_metrics.json").write_text(json.dumps(per_seed, ensure_ascii=False, indent=1), encoding="utf-8")
     (OUT_DIR / "final_histories.json").write_text(json.dumps(histories, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -315,6 +312,7 @@ def summarize_method(rts: list, fcs: list) -> dict:
     out = {"ade": s["ade"], "fde": s["fde"], "r2": s["r2"], "rmse": s["rmse"], "n": s["n"]}
     for p in ("straight", "entry", "turn", "exit"):
         out[p] = metrics.summarize(metrics.select(pairs, pairs["phase"] == PHASE_CODE[p]))["ade"]
+    out.update({f"ade_{s}": v for s, v in ade_by_source(rts, fcs).items()})     # только в merged
     return out
 
 

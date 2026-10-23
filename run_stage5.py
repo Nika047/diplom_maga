@@ -47,7 +47,7 @@ from common.rng import make_rng  # noqa: E402
 from data.windows import apply_correction, onset_labels  # noqa: E402
 from eval import metrics  # noqa: E402
 from eval.checks import StageSummary  # noqa: E402
-from eval.compare import compare, mask_forecast  # noqa: E402
+from eval.compare import compare, mask_forecast, source_section  # noqa: E402
 from models.onset import OnsetGRU, multitask_loss  # noqa: E402
 from radar.model import observe  # noqa: E402
 from run_stage4 import load_data, summarize_method  # noqa: E402
@@ -64,8 +64,8 @@ SMOKE = {"epochs": 2, "patience": 2, "seeds": (42, 43)}
 
 STAGE = "stage5"
 OUT_DIR = config.RESULTS_DIR / STAGE
-ART = config.PROJECT_DIR / "artifacts" / STAGE
-EVAL_SETS = ("val", "test", "holdout")
+ART = config.ARTIFACTS_DIR / STAGE
+EVAL_SETS = config.EVAL_SETS
 NET = "сеть"
 DETECTORS = ("IMM: вероятность CT", f"NIS модели CV за {config.ONSET_NIS_SCANS} обз.", NET)
 SINGLE, MULTI = "IMM+GRU", "IMM+GRU+начало маневра"
@@ -227,7 +227,7 @@ def main() -> int:
             # Однозадачный GRU - тот же путь, что в итоге этапа 4
             res = run_experiment(f"{SINGLE}, seed {seed}", "GRU", "hybrid", ws_tr, ws_val, params, device, summary,
                                  log, args.smoke, OUT_DIR, ART, window=window, seed=seed, model_kwargs=hp,
-                                 overfit=False, extra_sets={n: built[n][0] for n in ("test", "holdout")})
+                                 overfit=False, extra_sets={n: built[n][0] for n in config.EVAL_SETS[1:]})
             preds = {"val": res["pred"], **res["extra"]}
             for name in EVAL_SETS:
                 fcs = to_forecasts(name, preds[name])
@@ -323,6 +323,7 @@ def main() -> int:
             lines.append(f"{method:24s}" + "".join(f" {fmt([r[k] for r in reps], 1):>11s}"
                                                    for k in ("ade", "fde", "straight", "entry", "turn", "exit")))
         summary.section(f"{name}: прогноз, ADE (м), среднее ± СКО по {len(seeds)} seed", lines)
+        source_section(summary, name, {"IMM": [base], SINGLE: reports[name][SINGLE], MULTI: reports[name][MULTI]})
         compare(built[name][1], forecasts[name], summary, f"{name} (seed {seeds[0]})", OUT_DIR, f"{name}{tag}")
 
         curves = {}

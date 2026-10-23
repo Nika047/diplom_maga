@@ -66,9 +66,9 @@ from training.trainer import predict  # noqa: E402
 from tuning.search import config_override  # noqa: E402
 from viz.plots import PHASE_COLORS, PHASE_RU  # noqa: E402
 
-DEFAULT_MODEL = config.PROJECT_DIR / "artifacts" / "stage4" / "IMM_GRU,_seed_42.pt"
+DEFAULT_MODEL = config.ARTIFACTS_DIR / "stage4" / "IMM_GRU,_seed_42.pt"
 DEFAULT_IMM = config.CACHE_DIR / "stage4" / "imm_best.json"
-SMOKE_MODEL = config.PROJECT_DIR / "artifacts" / "stage4" / "IMM_GRU,_seed_42_smoke.pt"
+SMOKE_MODEL = config.ARTIFACTS_DIR / "stage4" / "IMM_GRU,_seed_42_smoke.pt"
 SMOKE_IMM = config.CACHE_DIR / "stage4_smoke" / "imm_best.json"
 PERIOD_TOL = 0.05        # допустимое отклонение шага времени в файле отметок, доля периода
 GEO_TOL_M = 1.0          # проверка пересчёта координат лога, м

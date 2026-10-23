@@ -3,7 +3,8 @@
 
 1. Проверки с известным ответом: поворот в систему курса, причинность окон,
    нулевая поправка = IMM, смоук модели (формы, нулевой выход, градиенты).
-2. Окна train (реальные train + синтетика train) и val (реальные val), кэш cache/stage2/.
+2. Окна train (реальные train + синтетика train) и val (реальные val; в варианте merged -
+   вместе со сгенерированными), кэш cache/stage2/.
 3. Проверка разбиения, overfit one batch.
 4. Обучение с ранней остановкой; веса в artifacts/stage2/, история в results/stage2/.
 5. Сравнение IMM и IMM+GRU на val: метрики, участки, динамическая ошибка (научный
@@ -19,7 +20,6 @@
 import argparse
 import dataclasses
 import json
-import pickle
 import sys
 import time
 from pathlib import Path
@@ -37,6 +37,7 @@ from data.phases import PHASE_CODE  # noqa: E402
 from data.windows import apply_correction, build_windows, n_features, to_global, to_local  # noqa: E402
 from eval import metrics  # noqa: E402
 from eval.checks import StageSummary  # noqa: E402
+from eval.compare import ade_by_source, source_section  # noqa: E402
 from filters.imm import IMM  # noqa: E402
 from models import build_corrector  # noqa: E402
 from training import dataset  # noqa: E402
@@ -54,7 +55,7 @@ CORRECTOR = "GRU"
 HYBRID = f"IMM+{CORRECTOR}"
 OUT_DIR = config.RESULTS_DIR / STAGE
 CACHE = config.CACHE_DIR / STAGE
-ART = config.PROJECT_DIR / "artifacts" / STAGE
+ART = config.ARTIFACTS_DIR / STAGE
 CACHE0 = config.CACHE_DIR / "stage0"
 TURN_CODES = (PHASE_CODE["entry"], PHASE_CODE["turn"])
 
@@ -143,6 +144,8 @@ def evaluate(model, norm, val_tracks: list, device, summary: StageSummary) -> di
     summary.section("val: IMM против гибрида, по горизонтали (м)", lines)
     summary.section("val: ADE по участкам (м)", phase_lines)
     summary.section("val: динамическая ошибка (м)", dyn_lines)
+    source_section(summary, "val", {name: [{"ade": report[name]["overall"]["ade"], **{
+        f"ade_{s}": v for s, v in ade_by_source(rts, fcs).items()}}] for name, fcs in (("IMM", imm_fc), (HYBRID, hyb_fc))})
     filter_plots.plot_dynamic_curves(curves, levels, OUT_DIR / "dynamic_error_val.png",
                                      f"Динамическая ошибка: IMM и {HYBRID}, val")
     filter_plots.plot_by_phase({m: report[m]["by_phase"] for m in report}, OUT_DIR / "ade_by_phase_val.png",
@@ -169,13 +172,8 @@ def main() -> int:
     params = SMOKE if args.smoke else FULL
     torch.manual_seed(config.RANDOM_SEED)
 
-    with open(CACHE0 / "tracks_real.pkl", "rb") as fh:
-        real = pickle.load(fh)
-    with open(CACHE0 / "tracks_synth_train.pkl", "rb") as fh:
-        synth = pickle.load(fh)
-    splits = splits_mod.load_splits(CACHE0 / "splits.json")
-    real_train = [tr for tr in real if splits.get(tr.log_file) == "train"]
-    val_tracks = [tr for tr in real if splits.get(tr.log_file) == "val"]
+    sets = splits_mod.load_sets(CACHE0)       # в варианте merged val включает сгенерированные траектории
+    real_train, synth, val_tracks = sets["train"], sets["synth"], sets["val"]
     if args.smoke:
         real_train, synth = real_train[::SMOKE_REAL_STEP], synth[::SMOKE_SYNTH_STEP]
 
@@ -191,7 +189,8 @@ def main() -> int:
     summary.section("Данные", [
         f"train: {len(real_train)} реальных кусков + {len(synth)} синтетических, {len(ws_tr)} окон "
         f"(из них реальных {n_real})",
-        f"val: {len(val_tracks)} реальных кусков, {len(ws_val)} окон",
+        f"val: {len(val_tracks)} кусков (из них сгенерированных {sum(tr.source == 'synth' for tr in val_tracks)}), "
+        f"{len(ws_val)} окон",
         f"окно {config.WINDOW_SCANS} обзоров, признаков {ws_tr.x.shape[-1]}, горизонт {config.HORIZON_SCANS}",
         f"подготовка окон: {time.time() - t0:.1f} с",
     ])

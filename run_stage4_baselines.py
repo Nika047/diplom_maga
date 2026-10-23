@@ -116,7 +116,7 @@ def main() -> int:
 
     # Итог на тех же обзорах, что у итога этапа 4
     w = config.TUNE_WINDOWS[0]
-    for name in ("val", "test", "holdout"):
+    for name in config.EVAL_SETS:
         with search.config_override(imm or {}):
             ws, rts_e, runs = dataset.build(sets[name], window=w)
         ks = [np.array(sorted(ws.k[ws.track == i]), dtype=int) for i in range(len(rts_e))]

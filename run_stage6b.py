@@ -57,8 +57,8 @@ SMOKE = {"epochs": 2, "patience": 2, "seeds": (42, 43)}
 
 STAGE = "stage6b"
 OUT_DIR = config.RESULTS_DIR / STAGE
-ART = config.PROJECT_DIR / "artifacts" / STAGE
-EVAL_SETS = ("val", "test", "holdout")
+ART = config.ARTIFACTS_DIR / STAGE
+EVAL_SETS = config.EVAL_SETS
 HYB = "IMM+GRU"
 REGIONS = ("IMM, эллипс хи-квадрат", "IMM, эллипс, конформный", f"{HYB}, круг, конформный",
            f"{HYB}, эллипс IMM, конформный")
@@ -222,7 +222,7 @@ def main() -> int:
             res = run_experiment(f"{HYB}, seed {seed}", "GRU", "hybrid", ws_tr, built["val"][0], params, device,
                                  summary, log, args.smoke, OUT_DIR, ART, window=window, seed=seed,
                                  model_kwargs=model_kwargs, overfit=s_i == 0,
-                                 extra_sets={n: built[n][0] for n in ("test", "holdout")})
+                                 extra_sets={n: built[n][0] for n in config.EVAL_SETS[1:]})
             preds = {"val": res["pred"], **res["extra"]}
             pairs_hyb = {}
             for name in EVAL_SETS:

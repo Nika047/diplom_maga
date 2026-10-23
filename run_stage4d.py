@@ -35,7 +35,7 @@ import config  # noqa: E402
 from common.logging_setup import setup_logging  # noqa: E402
 from data.windows import apply_correction  # noqa: E402
 from eval.checks import StageSummary  # noqa: E402
-from eval.compare import mask_forecast  # noqa: E402
+from eval.compare import mask_forecast, source_section  # noqa: E402
 from run_stage4 import load_data, summarize_method  # noqa: E402
 from training import dataset  # noqa: E402
 from training.experiment import run_experiment  # noqa: E402
@@ -48,8 +48,8 @@ SMOKE = {"trials": 3, "epochs": 2, "patience": 2, "seeds": (42, 43)}
 
 STAGE = "stage4d"
 OUT_DIR = config.RESULTS_DIR / STAGE
-ART = config.PROJECT_DIR / "artifacts" / STAGE
-EVAL_SETS = ("val", "test", "holdout")
+ART = config.ARTIFACTS_DIR / STAGE
+EVAL_SETS = config.EVAL_SETS
 HYB = "IMM+GRU"
 
 
@@ -142,7 +142,7 @@ def main() -> int:
             res = run_experiment(f"{HYB} x{args.synth}, seed {seed}", "GRU", "hybrid", ws_tr, built["val"][0], params,
                                  device, summary, log, args.smoke, OUT_DIR, ART, window=window, seed=seed,
                                  model_kwargs=hp, overfit=s_i == 0,
-                                 extra_sets={n: built[n][0] for n in ("test", "holdout")})
+                                 extra_sets={n: built[n][0] for n in config.EVAL_SETS[1:]})
             preds = {"val": res["pred"], **res["extra"]}
             for name in EVAL_SETS:
                 ws, rts, runs = built[name]
@@ -174,6 +174,7 @@ def main() -> int:
         for label, by_set in rows.items():
             lines.append(f"{label:44s}" + "".join(f" {cell(by_set[name], k):>11s}" for k in cols))
         summary.section(f"{name}: ADE (м), среднее ± СКО по seed", lines)
+        source_section(summary, name, {label: by_set[name] for label, by_set in rows.items()})
 
     (OUT_DIR / f"metrics{tag}.json").write_text(json.dumps({"best_params": best.params, "reports": reps},
                                                            ensure_ascii=False, indent=1), encoding="utf-8")

@@ -4,7 +4,24 @@
 Настройки, зависящие от устройства (батч, эпохи и т.п.), - в начале run_stageN.py.
 """
 
+import os
 from pathlib import Path
+
+# ============================================================================
+# Вариант данных (решение пользователя 23.10.2026) - переменная окружения DIPLOM_DATA
+# ============================================================================
+#   base   (по умолчанию) - вариант 2: проверка только на реальных полётах, отдельный
+#          holdout (тип Z-84), синтетика только в train. Папки results/, cache/, artifacts/, log/;
+#   merged - вариант 1: сгенерированные траектории делятся на train / val / test вместе с
+#          реальными полётами, Z-84 - в общих данных, holdout нет. Папки results_merged/ и т.д.
+# Варианты не пересекаются по папкам: запуск одного не меняет результаты другого.
+
+DATA_VARIANT = os.environ.get("DIPLOM_DATA", "base")
+if DATA_VARIANT not in ("base", "merged"):
+    raise ValueError(f"DIPLOM_DATA: ожидается base или merged, получено {DATA_VARIANT!r}")
+_SUFFIX = "" if DATA_VARIANT == "base" else "_merged"
+USE_HOLDOUT = DATA_VARIANT == "base"
+EVAL_SETS = ("val", "test", "holdout") if USE_HOLDOUT else ("val", "test")
 
 # ============================================================================
 # Пути
@@ -12,9 +29,10 @@ from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent
 FLIGHT_LOGS_DIR = PROJECT_DIR / "flight_logs"
-LOG_DIR = PROJECT_DIR / "log"
-RESULTS_DIR = PROJECT_DIR / "results"
-CACHE_DIR = PROJECT_DIR / "cache"
+LOG_DIR = PROJECT_DIR / f"log{_SUFFIX}"
+RESULTS_DIR = PROJECT_DIR / f"results{_SUFFIX}"
+CACHE_DIR = PROJECT_DIR / f"cache{_SUFFIX}"
+ARTIFACTS_DIR = PROJECT_DIR / f"artifacts{_SUFFIX}"
 
 # ============================================================================
 # Воспроизводимость
@@ -25,7 +43,7 @@ RANDOM_SEED = 42
 # Потоки случайных чисел порождаются из RANDOM_SEED в этом порядке.
 # Новые потоки добавлять только в конец, иначе изменятся все прежние.
 RNG_STREAMS = ("splits", "synth_train", "synth_analysis", "check_determinism", "synth_pilot", "radar",
-               "training", "synth_extra", "scale", "synth_test")
+               "training", "synth_extra", "scale", "synth_test", "synth_split")
 
 # ============================================================================
 # Логи полётов: состав
@@ -84,7 +102,7 @@ PHASES = ("straight", "entry", "turn", "exit", "slow")
 # Разбиение
 # ============================================================================
 
-HOLDOUT_AIRCRAFT = "Z84"       # тип целиком в отдельный тест, в обучение не попадает
+HOLDOUT_AIRCRAFT = "Z84"       # тип целиком в отдельный тест (только при USE_HOLDOUT; в merged - в общих данных)
 VAL_SHARE = 0.15               # доли логов каждого типа (разбиение целыми логами)
 TEST_SHARE = 0.15
 USE_SIM_IN_TRAIN = False       # полёты симулятора - отдельная выборка "sim"

@@ -29,6 +29,7 @@ from data import splits as splits_mod  # noqa: E402
 from data.phases import PHASE_CODE  # noqa: E402
 from eval import metrics  # noqa: E402
 from eval.checks import StageSummary  # noqa: E402
+from eval.compare import ade_by_source, source_of, source_section  # noqa: E402
 from filters.extrapolation import cv_extrapolate  # noqa: E402
 from filters.imm import IMM  # noqa: E402
 from filters.models import CA, CT, CV, VX, VY, W, X, Y  # noqa: E402
@@ -39,6 +40,7 @@ STAGE = "stage1"
 OUT_DIR = config.RESULTS_DIR / STAGE
 CACHE0 = config.CACHE_DIR / "stage0"
 METHODS = ("CV", "KF", "IMM")
+VAL = "val (реальные)" if config.USE_HOLDOUT else "val"     # в merged val смешанный
 TURN_CODES = (PHASE_CODE["entry"], PHASE_CODE["turn"])
 
 
@@ -209,6 +211,8 @@ def evaluate(rts: list, res: dict, label: str, summary: StageSummary) -> dict:
             dyn_lines.append(f"{method:5s} {h:2d} {level:7.1f} {st['peak']:7.1f} {st['peak_m']:6.0f} "
                              f"{st['area']:8.1f} {st['recovery']:12.0f} {int(counts[ms == 0][0]):9d}")
     summary.section(f"{label}: динамическая ошибка (м; m - обзоров от начала маневра)", dyn_lines)
+    source_section(summary, label, {m: [{"ade": report[m]["overall"]["ade"], **{
+        f"ade_{s}": v for s, v in ade_by_source(rts, res[m]["forecast"]).items()}}] for m in METHODS})
     report["_curves"], report["_levels"] = curves, levels
     return report
 
@@ -266,8 +270,8 @@ def main() -> int:
         summary.write(OUT_DIR / "summary.txt")
         return 1
     real, synth, splits = loaded
-    val = [tr for tr in real if splits.get(tr.log_file) == "val"]
-    datasets = {"val (реальные)": [observe(tr) for tr in val],
+    val = splits_mod.load_sets(CACHE0)["val"]     # в варианте merged - вместе со сгенерированными
+    datasets = {VAL: [observe(tr) for tr in val],
                 "синтетика": [observe(tr) for tr in synth]}
     summary.section("Данные", [f"{name}: {len(rts)} трасс, {sum(len(rt.t) for rt in rts)} обзоров, "
                                f"{sum(len(rt.onsets) for rt in rts)} маневров" for name, rts in datasets.items()]
@@ -287,7 +291,7 @@ def main() -> int:
     check_methods(datasets, results, reports, summary)
 
     log.info("5. Рисунки")
-    for name, tag in (("синтетика", "synth"), ("val (реальные)", "val")):
+    for name, tag in (("синтетика", "synth"), (VAL, "val")):
         rep = reports[name]
         filter_plots.plot_dynamic_curves(rep["_curves"], rep["_levels"], OUT_DIR / f"dynamic_error_{tag}.png",
                                          f"Динамическая ошибка: {name}")
@@ -301,11 +305,11 @@ def main() -> int:
         filter_plots.plot_track_filters(rts_s[i], results["синтетика"]["IMM"]["runs"][i],
                                         OUT_DIR / f"imm_example_{scenario}.png",
                                         f"IMM на синтетике ({rts_s[i].flight_id})")
-    rts_v = datasets["val (реальные)"]
-    i = int(np.argmax([len(rt.onsets) for rt in rts_v]))
+    rts_v = datasets[VAL]
+    i = int(np.argmax([len(rt.onsets) if source_of(rt) == "real" else -1 for rt in rts_v]))
     rt = rts_v[i]
     k_mid = rt.onsets[len(rt.onsets) // 2]
-    filter_plots.plot_track_filters(rt, results["val (реальные)"]["IMM"]["runs"][i],
+    filter_plots.plot_track_filters(rt, results[VAL]["IMM"]["runs"][i],
                                     OUT_DIR / "imm_example_val.png",
                                     f"IMM на реальном полёте ({rt.flight_id}), 3 минуты вокруг маневра",
                                     k_range=(max(0, k_mid - 45), min(len(rt.t), k_mid + 45)))

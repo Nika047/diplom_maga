@@ -77,7 +77,7 @@ def main() -> int:
     device = pick_device()
     log.info("Устройство: %s", device)
     cache4 = config.CACHE_DIR / ("stage4_smoke" if args.smoke else "stage4")
-    art4 = config.PROJECT_DIR / "artifacts" / "stage4"
+    art4 = config.ARTIFACTS_DIR / "stage4"
     seeds = SMOKE["seeds"] if args.smoke else config.FINAL_SEEDS
     share = SMOKE["share"] if args.smoke else config.SYNTH_TEST_SHARE
     t0 = time.time()
@@ -110,7 +110,8 @@ def main() -> int:
     clash = {tr.flight_id for tr in synth_test} & {tr.flight_id for tr in sets["synth"]}
     summary.check("Сгенерированный test не пересекается с синтетикой обучения", not clash,
                   f"траекторий {len(synth_test)}, {hours(synth_test):.1f} ч; совпадений имён {len(clash)}")
-    tracks = {SETS[0]: sets["test"], SETS[1]: synth_test}
+    # В варианте merged test уже содержит сгенерированные траектории - «реальный test» берётся без них
+    tracks = {SETS[0]: [tr for tr in sets["test"] if tr.source != "synth"], SETS[1]: synth_test}
 
     # Окна (для сетей) и базовые методы на обоих наборах
     window = config.TUNE_WINDOWS[0]
@@ -151,7 +152,7 @@ def main() -> int:
 
     # Повторение этапа 4 на реальном test
     s4 = config.RESULTS_DIR / "stage4" / "final_metrics.json"
-    if s4.exists():
+    if s4.exists() and config.USE_HOLDOUT:      # в merged test этапа 4 включает сгенерированные траектории
         m4 = json.loads(s4.read_text(encoding="utf-8"))["test"]
         diffs = [abs(np.mean([r["ade"] for r in reports[SETS[0]][lb]]) - np.mean([r["ade"] for r in m4[lb]]))
                  for lb in found if lb in m4]

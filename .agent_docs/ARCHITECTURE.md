@@ -6,6 +6,10 @@
 
 ## Поток данных
 
+Пути ниже - для варианта данных `base`. В варианте `merged` (`DIPLOM_DATA=merged`)
+те же каталоги с суффиксом `_merged`, holdout нет, а синтетика делится на train /
+val / test (`PLATFORM.md`, «Варианты данных»).
+
 ```text
 flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, перепривязка времени
                            |
@@ -60,7 +64,8 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `data/geo.py` | WGS84 -> ENU через ECEF и обратно (`enu_to_geodetic` - для карты `predict.py`) | есть |
 | `data/flight_logs.py` | Чтение CSV, очистка, разрез на куски, ENU, перепривязка времени | есть |
 | `data/phases.py` | Кинематика, разметка участков, доли, `turn_omegas` | есть |
-| `data/splits.py` | Разбиение целыми логами, `save_splits` / `load_splits` | есть |
+| `data/splits.py` | Разбиение целыми логами, `save_splits` / `load_splits`; `split_synth` (merged: сгенерированные траектории по сценариям в train / val / test); `load_sets` - выборки из кэша этапа 0 для всех этапов (в merged добавляет сгенерированные val и test) | есть |
+| `run_all.py` | Все этапы подряд для варианта `--data base / merged`, пропуск этапов с готовой сводкой, `--force`, `--from` | есть |
 | `data/generator.py` | Кинематический генератор, `calibrate_limits`, сценарии | есть |
 | `eval/checks.py` | `StageSummary`: проверки PASS / FAIL, разделы, `summary.txt` | есть |
 | `viz/plots.py`, `viz/map_html.py` | PNG и HTML-карта (Leaflet) | есть |
@@ -79,7 +84,7 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `models/gru.py`, `models/lstm.py` | Рекуррентные корректоры | есть |
 | `models/transformer.py` | Кодировщик Transformer, токен - обзор, позиционное кодирование обучаемое | есть |
 | `models/mamba.py` | Mamba на чистом PyTorch (селективное сканирование циклом по времени), `sequence()` для проверки причинности | есть |
-| `eval/compare.py` | Сравнение методов на одинаковых парах, разделы сводки, рисунки; `mask_forecast` | есть |
+| `eval/compare.py` | Сравнение методов на одинаковых парах, разделы сводки, рисунки; `mask_forecast`; разбивка по источнику трасс для merged (`source_of` по префиксу `synth` в `flight_id`, `ade_by_source`, раздел `source_section`) - только в тексте сводки и JSON, не в рисунках | есть |
 | `viz/train_plots.py` | Кривые loss | есть |
 | `run_stage2.py` | Этап 2, ключи `--smoke` и `--rebuild` | есть |
 | `run_stage3.py` | Этап 3: все корректоры и модели без IMM; `--smoke`, `--rebuild`, `--only GRU,Mamba` | есть |
@@ -108,6 +113,8 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 - `tracks_real.pkl` - все куски, включая sim и excluded: фильтровать по
   `splits.json`;
 - `tracks_synth_train.pkl`, `tracks_synth_analysis.pkl`;
+- `tracks_synth_eval.pkl` - только в merged: {"val": [...], "test": [...]}
+  сгенерированных траекторий;
 - `splits.json` - {лог: выборка};
 - `calibration.json` - `Limits`.
 

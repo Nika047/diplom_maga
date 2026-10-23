@@ -38,7 +38,7 @@ from data.phases import PHASE_CODE  # noqa: E402
 from data.windows import apply_correction  # noqa: E402
 from eval import metrics  # noqa: E402
 from eval.checks import StageSummary  # noqa: E402
-from eval.compare import compare, mask_forecast  # noqa: E402
+from eval.compare import compare, mask_forecast, source_section  # noqa: E402
 from filters.imm import IMM  # noqa: E402
 from filters.neural_mode import NeuralMode  # noqa: E402
 from models.hybrids import ModeGRU, WeightResidualGRU, bce_loss, weight_residual_loss  # noqa: E402
@@ -57,8 +57,8 @@ SMOKE = {"epochs": 2, "patience": 2, "seeds": (42, 43), "alphas": (0.5, 2.0)}
 
 STAGE = "stage6d"
 OUT_DIR = config.RESULTS_DIR / STAGE
-ART = config.PROJECT_DIR / "artifacts" / STAGE
-EVAL_SETS = ("val", "test", "holdout")
+ART = config.ARTIFACTS_DIR / STAGE
+EVAL_SETS = config.EVAL_SETS
 HYB = "IMM+GRU"
 NAMES = {"A": "A. IMM+GRU, поправка после", "B4": "Б4. сеть управляет переключением IMM",
          "B4A": "Б4 + A", "AB1": "A + Б1. веса моделей и поправка", "B5": "Б5. прогноз сети - режим IMM"}
@@ -184,7 +184,7 @@ def main() -> int:
             # A - эталон и источник прогноза для Б5
             res = run_experiment(f"{NAMES['A']}, seed {seed}", "GRU", "hybrid", ws_tr, built["val"][0], params,
                                  device, summary, log, args.smoke, OUT_DIR, ART, window=window, seed=seed,
-                                 model_kwargs=hp, overfit=False, extra_sets={n: built[n][0] for n in ("test", "holdout")})
+                                 model_kwargs=hp, overfit=False, extra_sets={n: built[n][0] for n in config.EVAL_SETS[1:]})
             preds_a = {"val": res["pred"], **res["extra"]}
             fc_a = {name: [mask_forecast(f, k) for f, k in zip(corrected(name, preds_a[name]), ks[name])]
                     for name in EVAL_SETS}      # nan вне окон: там режим сети Б5 ведёт себя как CV
@@ -237,7 +237,7 @@ def main() -> int:
                   for name in EVAL_SETS}
             res4 = run_experiment(f"{NAMES['B4A']}, seed {seed}", "GRU", "hybrid", ws_tr4, b4["val"][0], params, device,
                                   summary, log, args.smoke, OUT_DIR, ART, window=window, seed=seed, model_kwargs=hp,
-                                  overfit=False, extra_sets={n: b4[n][0] for n in ("test", "holdout")})
+                                  overfit=False, extra_sets={n: b4[n][0] for n in config.EVAL_SETS[1:]})
             preds4 = {"val": res4["pred"], **res4["extra"]}
             fc4 = {}
             for name in EVAL_SETS:
@@ -313,6 +313,7 @@ def main() -> int:
             lines.append(f"{method:40s}" + "".join(f" {cell(reports[name][method], k):>11s}"
                                                    for k in ("ade", "fde", "straight", "entry", "turn", "exit")))
         summary.section(f"{name}: ADE (м), сети - среднее ± СКО по {len(seeds)} seed", lines)
+        source_section(summary, name, {m: reports[name][m] for m in order})
         compare(built[name][1], {m: forecasts[name][m] for m in order}, summary, f"{name} (seed {seeds[0]})",
                 OUT_DIR, f"{name}{tag}")
     summary.section("Б4: распознавание маневра (AP по обзорам окон)", ap_lines)

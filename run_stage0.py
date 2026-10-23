@@ -4,7 +4,10 @@
 1. Проверки на подставных данных с известным ответом (ENU, разметка, очистка).
 2. Чтение и очистка логов flight_logs/, разметка участков.
 3. Разбиение реальных полётов на выборки (целыми логами).
-4. Калибровка пределов генератора по train, генерация синтетики.
+4. Калибровка пределов генератора по train, генерация синтетики. В варианте данных merged
+   (config.DATA_VARIANT) генерируется пул того же состава, но больше в 1 / (1 - VAL_SHARE -
+   TEST_SHARE) раз, и он делится на train / val / test в тех же долях, что реальные логи
+   (data/splits.split_synth); val и test сохраняются в tracks_synth_eval.pkl.
 5. Проверки PASS / FAIL, кэш в cache/stage0/, рисунки и сводка в results/stage0/.
 
 Запуск: .venv\\Scripts\\python.exe run_stage0.py
@@ -225,7 +228,7 @@ def check_splits(tracks: list, splits: dict, summary: StageSummary) -> None:
     overlap = sum(len(by_split.get(a, set()) & by_split.get(b, set()))
                   for i, a in enumerate(splits_mod.SPLITS) for b in splits_mod.SPLITS[i + 1:])
     holdout_leak = [lf for lf, name in splits.items()
-                    if name in ("train", "val", "test")
+                    if config.USE_HOLDOUT and name in ("train", "val", "test")
                     and flight_logs.aircraft_from_filename(lf) == config.HOLDOUT_AIRCRAFT]
     sim_leak = [lf for lf, name in splits.items()
                 if name in ("val", "test", "holdout")
@@ -233,10 +236,14 @@ def check_splits(tracks: list, splits: dict, summary: StageSummary) -> None:
     unassigned = [lf for lf in logs_used if lf not in splits]
     summary.check("Разбиение: выборки не пересекаются, всё распределено",
                   overlap == 0 and not unassigned, f"пересечений {overlap}, без выборки {len(unassigned)}")
-    summary.check("Разбиение: отложенный тип и симулятор не в train/val/test",
-                  not holdout_leak and not sim_leak,
-                  f"отложенный тип {config.HOLDOUT_AIRCRAFT}: утечек {len(holdout_leak)}, симулятор: {len(sim_leak)}")
-    for name in ("train", "val", "test", "holdout"):
+    if config.USE_HOLDOUT:
+        summary.check("Разбиение: отложенный тип и симулятор не в train/val/test",
+                      not holdout_leak and not sim_leak,
+                      f"отложенный тип {config.HOLDOUT_AIRCRAFT}: утечек {len(holdout_leak)}, симулятор: {len(sim_leak)}")
+    else:
+        summary.check("Разбиение: симулятор не в val/test", not sim_leak,
+                      f"утечек {len(sim_leak)}; {config.HOLDOUT_AIRCRAFT} в общих данных (вариант merged)")
+    for name in ("train", "val", "test") + (("holdout",) if config.USE_HOLDOUT else ()):
         n = len({tr.log_file for tr in tracks if splits[tr.log_file] == name})
         summary.check(f"Разбиение: выборка {name} не пуста", n > 0, f"логов {n}")
     used_h = hours([tr for tr in tracks if tr.aircraft in config.USED_AIRCRAFT])
@@ -363,9 +370,17 @@ def main() -> int:
         limits.omega_scale = float(np.clip(limits.omega_scale * target_w / measured_w, *config.OMEGA_SCALE_RANGE))
     lines.append(f"итоговый множитель заданной |w|: {limits.omega_scale:.3f}")
     summary.section("Калибровка |w| через измерение (пробная генерация)", lines)
-    synth_train = generator.generate(config.SYNTH_COUNT_TRAIN, limits, make_rng("synth_train"), "synth")
+    if config.USE_HOLDOUT:
+        synth_train = generator.generate(config.SYNTH_COUNT_TRAIN, limits, make_rng("synth_train"), "synth")
+        synth_eval = {}
+    else:
+        pool_share = 1.0 - config.VAL_SHARE - config.TEST_SHARE
+        pool = generator.generate({s: int(round(n / pool_share)) for s, n in config.SYNTH_COUNT_TRAIN.items()},
+                                  limits, make_rng("synth_train"), "synth")
+        parts = splits_mod.split_synth(pool, make_rng("synth_split"))
+        synth_train, synth_eval = parts["train"], {k: parts[k] for k in ("val", "test")}
     synth_analysis = generator.generate(config.SYNTH_COUNT_ANALYSIS, limits, make_rng("synth_analysis"), "synthA")
-    for tr in synth_train + synth_analysis:
+    for tr in synth_train + synth_analysis + [tr for v in synth_eval.values() for tr in v]:
         phases.annotate(tr)
     log.info("Синтетика сгенерирована за %.1f с", time.time() - t0)
     lines = []
@@ -374,8 +389,14 @@ def main() -> int:
         lines.append(f"{scenario:11s} траекторий {len(trs):4d}, часов {hours(trs):5.2f}, "
                      f"маневров {sum(len(tr.turn_onsets) for tr in trs):5d}")
     lines.append(f"набор для анализа: {len(synth_analysis)} траекторий, {hours(synth_analysis):.2f} ч")
+    for name, trs in synth_eval.items():
+        lines.append(f"вариант merged, {name}: {len(trs)} траекторий, {hours(trs):.2f} ч")
     summary.section("Синтетика (train)", lines)
-    check_synth(synth_train + synth_analysis, limits, summary)
+    check_synth(synth_train + synth_analysis + [tr for v in synth_eval.values() for tr in v], limits, summary)
+    if synth_eval:
+        ids = [tr.flight_id for tr in synth_train] + [tr.flight_id for v in synth_eval.values() for tr in v]
+        summary.check("Синтетика merged: train / val / test не пересекаются", len(ids) == len(set(ids)),
+                      f"траекторий {len(ids)}, уникальных {len(set(ids))}")
     compare_distributions(real_train, synth_train, summary)
 
     small = {name: 3 for name in config.SYNTH_SCENARIOS}
@@ -401,6 +422,9 @@ def main() -> int:
         pickle.dump(synth_train, fh)
     with open(CACHE / "tracks_synth_analysis.pkl", "wb") as fh:
         pickle.dump(synth_analysis, fh)
+    if synth_eval:
+        with open(CACHE / "tracks_synth_eval.pkl", "wb") as fh:
+            pickle.dump(synth_eval, fh)
     (CACHE / "calibration.json").write_text(json.dumps(limits.as_dict(), indent=1), encoding="utf-8")
     summary.section("Контрольные суммы (сравнивать между запусками и компьютерами)", [
         f"реальные треки: {tracks_hash(real)}",

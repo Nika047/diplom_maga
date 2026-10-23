@@ -23,7 +23,6 @@ run_stage4.py --phase imm. Попытки - в cache/stage4/optuna.db, оста�
 
 import argparse
 import json
-import pickle
 import sys
 import time
 from pathlib import Path
@@ -46,7 +45,7 @@ from data.phases import PHASE_CODE  # noqa: E402
 from data.windows import apply_correction  # noqa: E402
 from eval import metrics  # noqa: E402
 from eval.checks import StageSummary  # noqa: E402
-from eval.compare import mask_forecast  # noqa: E402
+from eval.compare import ade_by_source, mask_forecast, source_section  # noqa: E402
 from models import StackCorrector  # noqa: E402
 from training import dataset  # noqa: E402
 from training.trainer import overfit_one_batch, pick_device, predict, train  # noqa: E402
@@ -61,18 +60,12 @@ SMOKE = {"trials": 4, "population": 4, "epochs": 2, "patience": 2, "seeds": (42,
 STAGE = "stage4b"
 OUT_DIR = config.RESULTS_DIR / STAGE
 CACHE = config.CACHE_DIR / "stage4"
-ART = config.PROJECT_DIR / "artifacts" / STAGE
+ART = config.ARTIFACTS_DIR / STAGE
 CACHE0 = config.CACHE_DIR / "stage0"
 
 
 def load_sets(smoke: bool) -> dict:
-    with open(CACHE0 / "tracks_real.pkl", "rb") as fh:
-        real = pickle.load(fh)
-    with open(CACHE0 / "tracks_synth_train.pkl", "rb") as fh:
-        synth = pickle.load(fh)
-    splits = splits_mod.load_splits(CACHE0 / "splits.json")
-    sets = {name: [tr for tr in real if splits.get(tr.log_file) == name] for name in ("train", "val", "test", "holdout")}
-    sets["synth"] = synth
+    sets = splits_mod.load_sets(CACHE0)
     if smoke:
         sets["train"] = sets["train"][::SMOKE["real_step"]]
         sets["synth"] = sets["synth"][::SMOKE["synth_step"]]
@@ -178,6 +171,7 @@ def summarize_method(rts, fcs) -> dict:
     out = {"ade": s["ade"], "fde": s["fde"], "r2": s["r2"]}
     for p in ("straight", "entry", "turn"):
         out[p] = metrics.summarize(metrics.select(pairs, pairs["phase"] == PHASE_CODE[p]))["ade"]
+    out.update({f"ade_{s}": v for s, v in ade_by_source(rts, fcs).items()})     # только в merged
     return out
 
 
@@ -194,7 +188,7 @@ def phase_final(sets, seeds, epochs, patience, device, smoke, summary, log) -> b
     with search.config_override(imm):
         ws_tr = dataset.load_or_build(f"train{'_smoke' if smoke else ''}_w{w}", sets["train"] + sets["synth"],
                                       CACHE, window=w)
-        built = {name: dataset.build(sets[name], window=w) for name in ("val", "test", "holdout")}
+        built = {name: dataset.build(sets[name], window=w) for name in config.EVAL_SETS}
     norm = dataset.Normalizer.fit(ws_tr)
     x_tr, y_tr = norm.x(ws_tr.x), norm.y(ws_tr.y)
 
@@ -244,7 +238,7 @@ def phase_final(sets, seeds, epochs, patience, device, smoke, summary, log) -> b
 
     stage4 = config.RESULTS_DIR / "stage4" / "final_metrics.json"
     ref = json.loads(stage4.read_text(encoding="utf-8")) if stage4.exists() and not smoke else {}
-    for name in ("val", "test", "holdout"):
+    for name in config.EVAL_SETS:
         lines = [f"{'метод':34s} {'ADE':>12s} {'FDE':>12s} {'R2':>12s} {'прямая':>12s} {'вход':>12s} {'маневр':>12s}"]
         rows = dict(table[name])
         for label, reps in ref.get(name, {}).items():
@@ -257,6 +251,7 @@ def phase_final(sets, seeds, epochs, patience, device, smoke, summary, log) -> b
                 row += " " + fmt.format(vals.mean(), vals.std())
             lines.append(row)
         summary.section(f"{name}: среднее ± СКО по seed (м){' - СМОУК' if smoke else ''}", lines)
+        source_section(summary, name, rows)
     (OUT_DIR / "final_metrics.json").write_text(json.dumps(table, ensure_ascii=False, indent=1), encoding="utf-8")
     return True
 

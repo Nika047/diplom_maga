@@ -75,8 +75,54 @@ HTML-карта - Leaflet с CDN внутри HTML, Python-зависимост�
 | `log/` | Журналы запусков `<запуск>_<ГГГГММДД-ЧЧММСС>.log`, UTF-8 |
 | `results/stageN/` | `summary.txt` (PASS / FAIL), рисунки, метрики |
 | `cache/` | Промежуточные данные этапов |
+| `artifacts/` | Веса моделей (`.pt`) |
 
-Все три генерируются запуском и не коммитятся.
+Все генерируются запуском и не коммитятся.
+
+## Варианты данных
+
+Переменная окружения `DIPLOM_DATA` выбирает вариант (`config.DATA_VARIANT`):
+
+| Вариант | Данные | Каталоги |
+|---|---|---|
+| `base` (по умолчанию, вариант 2) | синтетика только в train; test - только реальные полёты; Z-84 - holdout | `log/`, `results/`, `cache/`, `artifacts/` |
+| `merged` (вариант 1, решение 23.10.2026) | сгенерированные траектории делятся на train / val / test (70/15/15 по сценариям) и добавляются к реальным; Z-84 - в общих данных; holdout нет | `log_merged/`, `results_merged/`, `cache_merged/`, `artifacts_merged/` |
+
+Варианты не затирают друг друга: у каждого свои каталоги, в том числе веса.
+
+В merged val и test смешанные (в test 4,3 ч реальных полётов и 13,1 ч
+сгенерированных), поэтому сводки этапов дополнительно содержат разделы «ADE по
+источнику трасс ... только в тексте» (все / реальные / сгенерированные), а
+отчёты `summarize_method` в JSON - ключи `ade_real`, `ade_synth`. Рисунки строятся
+по всему набору без этой разбивки (решение пользователя 23.10.2026: в рисунках
+диплома её нет). В base разделов нет.
+
+**Все этапы подряд** - `run_all.py`: сам ставит `DIPLOM_DATA` дочерним процессам,
+пропускает этапы, у которых уже есть сводка (повторный запуск продолжает), и
+останавливается, если этап не записал сводку. `--force` - заново, `--from
+run_stage4c.py` - начать с этапа.
+
+```powershell
+.venv\Scripts\python.exe run_all.py --data merged
+```
+
+В фоне (обрыв ssh не останавливает):
+
+```powershell
+$P = (Get-Location).Path
+Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = "cmd /c `"cd /d $P && .venv\Scripts\python.exe -u run_all.py --data merged >> run_all_merged.out 2>&1`"" }
+```
+
+Отдельный этап в merged - через `cmd`: процесс, запущенный `Invoke-CimMethod`, не
+наследует переменные окружения сессии, поэтому `$env:DIPLOM_DATA` не сработает.
+Пробела перед `&&` быть не должно, иначе значение получит пробел на конце:
+
+```powershell
+Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = "cmd /c `"cd /d $P && set DIPLOM_DATA=merged&& .venv\Scripts\python.exe -u run_stage5.py > stage5_merged.out 2>&1`"" }
+```
+
+Остальные команды ниже - для `base`; для `merged` те же, с `DIPLOM_DATA=merged`.
+Смоук всех этапов в merged на рабочем ПК (23.10.2026) - см. `PROJECT_STATE.md`.
 
 ## Команды
 

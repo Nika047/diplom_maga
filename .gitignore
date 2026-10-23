@@ -4,6 +4,10 @@ log/
 results/
 cache/
 artifacts/
+log_merged/
+results_merged/
+cache_merged/
+artifacts_merged/
 __pycache__/
 *.pyc
 

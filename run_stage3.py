@@ -21,7 +21,6 @@
 import argparse
 import dataclasses
 import json
-import pickle
 import sys
 import time
 from pathlib import Path
@@ -59,7 +58,7 @@ EXPERIMENTS = [("IMM+LSTM", "LSTM", "hybrid"), ("IMM+GRU", "GRU", "hybrid"),
 STAGE = "stage3"
 OUT_DIR = config.RESULTS_DIR / STAGE
 CACHE = config.CACHE_DIR / "stage2"
-ART = config.PROJECT_DIR / "artifacts" / STAGE
+ART = config.ARTIFACTS_DIR / STAGE
 CACHE0 = config.CACHE_DIR / "stage0"
 
 
@@ -138,13 +137,8 @@ def main() -> int:
     only = {s.strip() for s in args.only.split(",") if s.strip()}
     experiments = [e for e in EXPERIMENTS if not only or e[1] in only]
 
-    with open(CACHE0 / "tracks_real.pkl", "rb") as fh:
-        real = pickle.load(fh)
-    with open(CACHE0 / "tracks_synth_train.pkl", "rb") as fh:
-        synth = pickle.load(fh)
-    splits = splits_mod.load_splits(CACHE0 / "splits.json")
-    real_train = [tr for tr in real if splits.get(tr.log_file) == "train"]
-    val_tracks = [tr for tr in real if splits.get(tr.log_file) == "val"]
+    sets = splits_mod.load_sets(CACHE0)       # в варианте merged val включает сгенерированные траектории
+    real_train, synth, val_tracks = sets["train"], sets["synth"], sets["val"]
     if args.smoke:
         real_train, synth = real_train[::SMOKE_REAL_STEP], synth[::SMOKE_SYNTH_STEP]
 

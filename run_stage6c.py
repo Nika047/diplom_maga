@@ -38,7 +38,7 @@ from common.logging_setup import setup_logging  # noqa: E402
 from common.rng import make_rng  # noqa: E402
 from data.windows import apply_correction, model_offsets, sequence_arrays, sequence_chunks  # noqa: E402
 from eval.checks import StageSummary  # noqa: E402
-from eval.compare import compare, mask_forecast  # noqa: E402
+from eval.compare import compare, mask_forecast, source_section  # noqa: E402
 from filters.imm import IMM  # noqa: E402
 from models.hybrids import ModelWeightGRU, NeuralKF, model_weight_loss, sequence_loss  # noqa: E402
 from radar.model import observe  # noqa: E402
@@ -57,8 +57,8 @@ SMOKE = {"epochs": 2, "patience": 2, "seeds": (42, 43), "chunk": 30, "lrs": (1e-
 
 STAGE = "stage6c"
 OUT_DIR = config.RESULTS_DIR / STAGE
-ART = config.PROJECT_DIR / "artifacts" / STAGE
-EVAL_SETS = ("val", "test", "holdout")
+ART = config.ARTIFACTS_DIR / STAGE
+EVAL_SETS = config.EVAL_SETS
 HYB = "IMM+GRU"
 NAMES = {"A": "A. IMM+GRU, поправка после", "B1": "Б1. IMM, сеть выбирает модель",   # без «:» - идут в имена файлов
          "B2": "Б2. KF, сеть в усилении", "B3": "Б3. KF, сеть задаёт шум"}
@@ -209,7 +209,7 @@ def main() -> int:
             res = run_experiment(f"{NAMES['A']}, seed {seed}", "GRU", "hybrid", ws_tr, built["val"][0], params,
                                  device, summary, log, args.smoke, OUT_DIR, ART, window=window, seed=seed,
                                  model_kwargs=model_kwargs, overfit=False,
-                                 extra_sets={n: built[n][0] for n in ("test", "holdout")})
+                                 extra_sets={n: built[n][0] for n in config.EVAL_SETS[1:]})
             preds = {"val": res["pred"], **res["extra"]}
             evaluate(NAMES["A"], {name: hybrid_fcs(name, preds[name]) for name in EVAL_SETS}, s_i)
             costs.setdefault(NAMES["A"], []).append((res["history"]["n_params"], res["history"]["train_seconds"]))
@@ -290,6 +290,7 @@ def main() -> int:
             lines.append(f"{method:32s}" + "".join(f" {cell(reps, k):>11s}"
                                                    for k in ("ade", "fde", "straight", "entry", "turn", "exit")))
         summary.section(f"{name}: ADE (м), обучаемые схемы - среднее ± СКО по {len(seeds)} seed", lines)
+        source_section(summary, name, {m: reports[name][m] for m in order})
         compare(built[name][1], {m: forecasts[name][m] for m in order}, summary, f"{name} (seed {seeds[0]})",
                 OUT_DIR, f"{name}{tag}")
     summary.section(f"Б2, Б3: выбор шага обучения по val (seed {seeds[0]})", lr_lines)

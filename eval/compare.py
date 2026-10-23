@@ -4,6 +4,10 @@ metrics.json и рисунки. Определения метрик - тольк
 
 Сравнение честное, если у всех методов одинаковые пары (k, h): прогнозы вне
 общего набора обзоров нужно заранее заменить на nan (mask_forecast).
+
+Набор из реальных и сгенерированных трасс (вариант данных merged) дополнительно
+разбирается по источнику - только в тексте сводки и в отчёте, рисунки строятся по
+всему набору (решение пользователя 23.10.2026: в рисунках диплома этой разбивки нет).
 """
 
 from pathlib import Path
@@ -16,6 +20,41 @@ from eval import metrics
 from viz import filter_plots
 
 TURN_CODES = (PHASE_CODE["entry"], PHASE_CODE["turn"])
+SOURCES = {"real": "реальные", "synth": "сгенерированные"}
+
+
+def source_of(rt) -> str:
+    """Источник трассы по имени: у сгенерированных flight_id начинается с synth (synth_, synthT_, synthX...)."""
+    return "synth" if rt.flight_id.startswith("synth") else "real"
+
+
+def ade_by_source(rts: list, fcs: list) -> dict:
+    """ADE отдельно по реальным и сгенерированным трассам; {} - если набор не смешанный (вариант base)."""
+    groups = {s: [i for i, rt in enumerate(rts) if source_of(rt) == s] for s in SOURCES}
+    if not all(groups.values()):
+        return {}
+    return {s: metrics.summarize(metrics.concat_pairs([metrics.forecast_pairs(rts[i], fcs[i]) for i in idx]))["ade"]
+            for s, idx in groups.items()}
+
+
+def source_section(summary, label: str, table: dict) -> None:
+    """
+    Раздел сводки «ADE по источнику» по отчётам {метод: [отчёт по seed]} с ключами ade, ade_real,
+    ade_synth (summarize_method этапа 4). Методы без разбивки пропускаются; в base раздела нет.
+    """
+    rows = {m: reps for m, reps in table.items() if reps and "ade_real" in reps[0]}
+    if not rows:
+        return
+    def cell(vals):
+        return f"{vals.mean():.1f}" if len(vals) == 1 else f"{vals.mean():.1f}±{vals.std():.1f}"
+
+    width = max(len(m) for m in rows) + 1
+    lines = [f"{'метод':{width}s} {'все':>12s}" + "".join(f" {v:>16s}" for v in SOURCES.values())]
+    for m, reps in rows.items():
+        cells = [cell(np.array([r[k] for r in reps])) for k in ("ade", *(f"ade_{s}" for s in SOURCES))]
+        lines.append(f"{m:{width}s} {cells[0]:>12s}" + "".join(f" {c:>16s}" for c in cells[1:]))
+    summary.section(f"{label}: ADE по источнику трасс (м; при нескольких seed - среднее ± СКО), только в тексте",
+                    lines)
 
 
 def mask_forecast(forecast: np.ndarray, ks: np.ndarray) -> np.ndarray:
@@ -55,6 +94,14 @@ def compare(rts: list, forecasts: dict, summary, label: str, out_dir: Path = Non
     summary.section(f"{label}: метрики по горизонтали (м)", lines)
     summary.section(f"{label}: ADE по участкам (м)", phase_lines)
     summary.section(f"{label}: динамическая ошибка (м)", dyn_lines)
+    by_source = {name: ade_by_source(rts, fcs) for name, fcs in forecasts.items()}
+    if all(by_source.values()):
+        src_lines = [f"{'метод':{width}s} {'все':>8s}" + "".join(f" {v:>16s}" for v in SOURCES.values())]
+        for name, src in by_source.items():
+            report[name]["by_source"] = src
+            src_lines.append(f"{name:{width}s} {report[name]['overall']['ade']:8.1f}"
+                             + "".join(f" {src[s]:16.1f}" for s in SOURCES))
+        summary.section(f"{label}: ADE по источнику трасс (м), только в тексте", src_lines)
     if out_dir is not None:
         filter_plots.plot_dynamic_curves(curves, levels, out_dir / f"dynamic_error_{tag}.png",
                                          f"Динамическая ошибка: {label}")
