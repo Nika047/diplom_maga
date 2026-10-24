@@ -104,6 +104,8 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `run_stage8.py` | Этап 8: сгенерированный test (поток `synth_test`, доля `SYNTH_TEST_SHARE`) и реальный test на весах итога этапа 4 (`artifacts/stage4/`, 3 seed), без переобучения; `--smoke` | есть |
 | `run_stage6d.py` | Этап 6г: схемы Б4 (сеть управляет переключением IMM), Б4 + A, A + Б1, Б5 (прогноз сети - режим IMM); `--smoke` | есть |
 | `filters/neural_mode.py` | `NeuralMode` - прогноз сети как режим IMM (схема Б5) | есть |
+| `data/augment.py` | Расширение реальных трасс train (этап 9): `radar_copy` (новые РЛС и шум по новому имени `<имя>~radarN`), `mirror` (x -> -x), `speed_scale` (горизонталь x f, только в пределах калибровки - `speed_scale_allowed`), `augment` | есть |
+| `run_stage9.py` | Этап 9: IMM+GRU этапа 4 на наборах обучения «этап 4», «+ каждое расширение», «+ все», «только реальные», «только реальные + все»; 3 seed, окна копий - `cache/stage9/`; `--smoke` | есть |
 | `run_stage6b.py` | Этап 6б: строб - четыре варианта области прогноза (IMM хи-квадрат, IMM конформный, гибрид круг и эллипс IMM), калибровка на val; `--smoke` | есть |
 | `run_stage6a.py` | Этап 6а: пропуски отметок, P_d из `PD_LEVELS`; CV, KF, IMM и сети этапа 4, обученные при P_d = 1 и при каждом P_d; `--smoke`. Окна train - `cache/stage6a/train_w20_pdNNN.npz` | есть |
 | `run_stage5.py` | Этап 5: прогноз начала маневра, сравнение с обнаружителями по IMM, GRU с головой и без; `--smoke`. Нужны `imm_best.json` и `best_params.json` этапа 4 | есть |
