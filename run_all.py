@@ -42,6 +42,7 @@ STAGES = [
     ("run_stage8.py", "stage8/summary.txt"),
     ("run_stage9.py", "stage9/summary.txt"),
     ("run_stage10.py", "stage10/summary.txt"),
+    ("run_stage11.py", "stage11/summary.txt"),
 ]
 
 
