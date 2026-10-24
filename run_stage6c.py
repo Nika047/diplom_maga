@@ -22,6 +22,8 @@ A и Б1 - это оговорка к сравнению). Оценка на о�
 модели обучились; прогноз Б2, Б3 конечен на всех обзорах; A повторяет этап 4.
 Б2 и Б3 обучаются с пропуском шагов, где loss или градиент не конечны (skip_nonfinite):
 дома на merged один батч с расходящимся фильтром делал nan все веса Б2 (seed 44).
+Шаг, при котором при выборе были такие пропуски, считается неустойчивым и не выбирается;
+разошедшиеся seed (не обучилась или прогноз не конечен) не входят в средние.
 """
 
 import argparse
@@ -190,9 +192,9 @@ def main() -> int:
                   f"ADE val {a2:.2f} м против {a3:.2f} м (2D против 3D: у ковариации отметки есть связь с высотой)")
 
     # Б2, Б3: выбор шага обучения по val (seed - первый)
-    kf_lr, lr_lines, skip_lines = {}, [], []
+    kf_lr, lr_lines, skip_lines, diverged = {}, [], [], {}
     for code, mode in (("B2", "gain"), ("B3", "noise")):
-        val_loss = {}
+        val_loss, skips = {}, {}
         for lr in kf_lrs:
             rng = make_rng("training", seeds[0])
             torch.manual_seed(seeds[0])
@@ -201,9 +203,14 @@ def main() -> int:
             hist, _ = train(m, xs_tr, ys_tr, xs_val, ys_val, {**kf_params, "lr": lr}, device, rng, quiet=True,
                             loss_fn=loss_kf)
             val_loss[lr] = hist["best_val_loss"]
-        kf_lr[code] = min(val_loss, key=val_loss.get)
-        lr_lines.append(f"{NAMES[code]}: " + ", ".join(f"lr {lr:g} -> val loss {v:.4f}" for lr, v in val_loss.items())
-                        + f"; выбран {kf_lr[code]:g}")
+            skips[lr] = sum(e["skipped"] for e in hist["epochs"])
+        # Шаг с пропусками nan-шагов неустойчив: на merged при 3e-3 у seed 42 было 22 пропуска,
+        # а seed 44 с тем же шагом разошёлся (THESIS_NOTES.md, 4.11)
+        stable = [lr for lr in kf_lrs if skips[lr] == 0 and np.isfinite(val_loss[lr])]
+        kf_lr[code] = min(stable or kf_lrs, key=val_loss.get)
+        lr_lines.append(f"{NAMES[code]}: " + ", ".join(
+            f"lr {lr:g} -> val loss {val_loss[lr]:.4f}" + (f" (пропусков {skips[lr]})" if skips[lr] else "")
+            for lr in kf_lrs) + f"; выбран {kf_lr[code]:g}" + ("" if stable else " (устойчивых шагов нет)"))
 
     with search.config_override(imm):
         for s_i, seed in enumerate(seeds):
@@ -269,7 +276,8 @@ def main() -> int:
                                    loss_fn=loss_kf)
                 costs.setdefault(NAMES[code], []).append((sum(p.numel() for p in model.parameters()),
                                                           time.time() - t1))
-                summary.check(f"{key}: модель обучилась", history["best_val_loss"] < history["val_loss_initial"],
+                trained = history["best_val_loss"] < history["val_loss_initial"]
+                summary.check(f"{key}: модель обучилась", trained,
                               f"val loss {history['val_loss_initial']:.4f} -> {history['best_val_loss']:.4f}")
                 train_plots.plot_history(history, OUT_DIR / f"loss_{code}_{seed}{tag}.png", f"Обучение: {key}")
                 ART.mkdir(parents=True, exist_ok=True)
@@ -284,25 +292,36 @@ def main() -> int:
                 summary.check(f"{key}: прогноз конечен на всех обзорах", n_bad == 0,
                               f"обзоров с nan: {n_bad}" + ("" if n_bad == 0 else " (в метриках не учтены)"))
                 skip_lines.append(f"{key}: {sum(e['skipped'] for e in history['epochs'])}")
+                if not trained or n_bad:
+                    diverged.setdefault(NAMES[code], []).append(seed)
                 evaluate(NAMES[code], fcs, s_i)
+
+    def kept(name, method):
+        # Разошедшийся seed даёт ошибки в миллиарды метров - в средние он не входит
+        return [r for r, seed in zip(reports[name][method], seeds) if seed not in diverged.get(method, [])]
 
     def cell(reps, key):
         vals = np.array([r[key] for r in reps], dtype=float)
+        if not len(vals):
+            return "-"
         return f"{vals.mean():.1f}" if len(vals) == 1 else f"{vals.mean():.1f}±{vals.std():.1f}"
 
     order = ["KF", KF2D, "IMM", NAMES["A"], NAMES["B1"], NAMES["B2"], NAMES["B3"]]
     for name in EVAL_SETS:
         lines = [f"{'метод':32s}" + "".join(f" {c:>11s}" for c in ("ADE", "FDE", "прямая", "вход", "маневр", "выход"))]
         for method in order:
-            reps = reports[name][method]
+            reps = kept(name, method)
             lines.append(f"{method:32s}" + "".join(f" {cell(reps, k):>11s}"
                                                    for k in ("ade", "fde", "straight", "entry", "turn", "exit")))
-        summary.section(f"{name}: ADE (м), обучаемые схемы - среднее ± СКО по {len(seeds)} seed", lines)
-        source_section(summary, name, {m: reports[name][m] for m in order})
+        summary.section(f"{name}: ADE (м), обучаемые схемы - среднее ± СКО по {len(seeds)} seed "
+                        f"(без разошедшихся)", lines)
+        source_section(summary, name, {m: kept(name, m) for m in order})
         compare(built[name][1], {m: forecasts[name][m] for m in order}, summary, f"{name} (seed {seeds[0]})",
                 OUT_DIR, f"{name}{tag}")
     summary.section(f"Б2, Б3: выбор шага обучения по val (seed {seeds[0]})", lr_lines)
     summary.section("Б2, Б3: пропущено батчей с nan/inf в loss или градиенте (за всё обучение)", skip_lines)
+    summary.section("Разошедшиеся seed (не обучилась или прогноз не конечен; в средние не входят)",
+                    [f"{m}: seed {', '.join(map(str, s))}" for m, s in diverged.items()] or ["нет"])
     summary.section("Затраты: параметров, обучение (с, среднее по seed)", [
         f"{m:32s} {int(np.mean([c[0] for c in v])):8d} {np.mean([c[1] for c in v]):10.1f}" for m, v in costs.items()])
     (OUT_DIR / f"metrics{tag}.json").write_text(json.dumps(reports, ensure_ascii=False, indent=1), encoding="utf-8")
