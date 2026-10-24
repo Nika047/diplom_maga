@@ -134,7 +134,8 @@ class NeuralKF(nn.Module):
                 torch.full((b,), self.sigma0, dtype=dtype, device=seq.device)
             pp = pp + sigma[:, None, None] ** 2 * self.q1
             s_mat = pp[:, :2, :2] + r[:, k]
-            gain = pp[:, :, :2] @ torch.linalg.inv(s_mat)                 # (B, 4, 2)
+            # inv_ex: при расходимости фильтра - nan в прогнозе (его ловит проверка этапа), а не исключение
+            gain = pp[:, :, :2] @ torch.linalg.inv_ex(s_mat).inverse      # (B, 4, 2)
             if self.mode == "gain":
                 # Поправка ограничена (по положению до 1, по скорости до 1 / T): без ограничения
                 # усиление уходило туда, где фильтр расходится (смоук этапа 6в)

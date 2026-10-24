@@ -79,7 +79,7 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `run_stage1.py` | Этап 1 | есть |
 | `data/windows.py` | Нарезка окон (единственное место), система курса, `apply_correction`, `onset_labels` (метка начала маневра, этап 5), `held` (последняя полученная отметка при пропуске, этап 6а), `model_offsets`, `sequence_arrays`, `sequence_chunks` (данные схем варианта Б, этап 6в) | есть |
 | `training/dataset.py` | Сборка окон с кэшем и подписью параметров, `Normalizer`; `build(run_kwargs=...)`, `WindowSet.subset_tracks`, `concat` (этапы 4в, 6г) | есть |
-| `training/trainer.py` | Обучение, ранняя остановка, overfit one batch (dropout отключается, `clip` - ограничение градиента для сетей внутри фильтра), `predict`; `loss_fn` - своя функция потерь (этап 5), по умолчанию MSE | есть |
+| `training/trainer.py` | Обучение, ранняя остановка, overfit one batch (dropout отключается, `clip` - ограничение градиента для сетей внутри фильтра), `predict`; `loss_fn` - своя функция потерь (этап 5), по умолчанию MSE; `params["skip_nonfinite"]` - пропуск шага при nan/inf в loss или градиенте (только Б2, Б3 этапа 6в, по умолчанию выключен) | есть |
 | `models/__init__.py` | Реестр `CORRECTORS`: GRU, LSTM, Transformer, Mamba | есть |
 | `models/gru.py`, `models/lstm.py` | Рекуррентные корректоры | есть |
 | `models/transformer.py` | Кодировщик Transformer, токен - обзор, позиционное кодирование обучаемое | есть |

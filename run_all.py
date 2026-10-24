@@ -49,6 +49,9 @@ def main() -> int:
     parser.add_argument("--force", action="store_true", help="запускать этапы, даже если сводка уже есть")
     parser.add_argument("--from", dest="start", default="", help="начать с этого скрипта, например run_stage4c.py")
     args = parser.parse_args()
+    # Свои строки - в UTF-8, как у этапов: при выводе в файл иначе кодировка системы, и файл
+    # получался в двух кодировках (дома строки [готово] и [стоп] читались кракозябрами)
+    sys.stdout.reconfigure(encoding="utf-8")
     env = {**os.environ, "DIPLOM_DATA": args.data, "PYTHONIOENCODING": "utf-8"}
     results = PROJECT_DIR / ("results" if args.data == "base" else "results_merged")
     started = not args.start

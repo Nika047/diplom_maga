@@ -19,7 +19,9 @@ A и Б1 - это оговорка к сравнению). Оценка на о�
 
 Проверки: Б1 до обучения = IMM; фильтр на PyTorch без сети близок к фильтру Калмана
 этапа 1; loss на одном батче падает (Б1-Б3 ограничены схемой и до нуля не обязаны);
-модели обучились; A повторяет этап 4.
+модели обучились; прогноз Б2, Б3 конечен на всех обзорах; A повторяет этап 4.
+Б2 и Б3 обучаются с пропуском шагов, где loss или градиент не конечны (skip_nonfinite):
+дома на merged один батч с расходящимся фильтром делал nan все веса Б2 (seed 44).
 """
 
 import argparse
@@ -51,7 +53,7 @@ from viz import train_plots  # noqa: E402
 
 # Настройки, зависящие от устройства
 FINAL = {"epochs": 80, "patience": 10}
-KF_TRAIN = {"batch": 128, "lr": 1e-3, "weight_decay": 1e-5, "epochs": 40, "patience": 6}
+KF_TRAIN = {"batch": 128, "lr": 1e-3, "weight_decay": 1e-5, "epochs": 40, "patience": 6, "skip_nonfinite": True}
 KF_LRS = (1e-3, 3e-3, 1e-2)   # Б2, Б3: шаг выбирается по val при первом seed (у A и Б1 - подбор этапа 4)
 SMOKE = {"epochs": 2, "patience": 2, "seeds": (42, 43), "chunk": 30, "lrs": (1e-3, 1e-2)}
 
@@ -188,7 +190,7 @@ def main() -> int:
                   f"ADE val {a2:.2f} м против {a3:.2f} м (2D против 3D: у ковариации отметки есть связь с высотой)")
 
     # Б2, Б3: выбор шага обучения по val (seed - первый)
-    kf_lr, lr_lines = {}, []
+    kf_lr, lr_lines, skip_lines = {}, [], []
     for code, mode in (("B2", "gain"), ("B3", "noise")):
         val_loss = {}
         for lr in kf_lrs:
@@ -276,6 +278,12 @@ def main() -> int:
                 fcs = {name: [mask_forecast(kf_forecast(model, rt, f, device), k)
                               for rt, f, k in zip(built[name][1], forecasts[name]["IMM"], ks[name])]
                        for name in EVAL_SETS}
+                # Метрики молча пропускают nan, а nan здесь - расходимость фильтра на длинной трассе
+                n_bad = sum(int(np.isnan(f[k]).any(axis=(1, 2)).sum()) for name in EVAL_SETS
+                            for f, k in zip(fcs[name], ks[name]))
+                summary.check(f"{key}: прогноз конечен на всех обзорах", n_bad == 0,
+                              f"обзоров с nan: {n_bad}" + ("" if n_bad == 0 else " (в метриках не учтены)"))
+                skip_lines.append(f"{key}: {sum(e['skipped'] for e in history['epochs'])}")
                 evaluate(NAMES[code], fcs, s_i)
 
     def cell(reps, key):
@@ -294,6 +302,7 @@ def main() -> int:
         compare(built[name][1], {m: forecasts[name][m] for m in order}, summary, f"{name} (seed {seeds[0]})",
                 OUT_DIR, f"{name}{tag}")
     summary.section(f"Б2, Б3: выбор шага обучения по val (seed {seeds[0]})", lr_lines)
+    summary.section("Б2, Б3: пропущено батчей с nan/inf в loss или градиенте (за всё обучение)", skip_lines)
     summary.section("Затраты: параметров, обучение (с, среднее по seed)", [
         f"{m:32s} {int(np.mean([c[0] for c in v])):8d} {np.mean([c[1] for c in v]):10.1f}" for m, v in costs.items()])
     (OUT_DIR / f"metrics{tag}.json").write_text(json.dumps(reports, ensure_ascii=False, indent=1), encoding="utf-8")

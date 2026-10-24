@@ -99,6 +99,9 @@ def train(model: nn.Module, x_tr, y_tr, x_val, y_val, params: dict, device: torc
     """
     Возвращает (история по эпохам, лучшие веса). quiet - без строки на каждую эпоху
     (подбор). loss_fn(pred, y) - своя функция потерь, по умолчанию MSE.
+    params["skip_nonfinite"] - пропускать шаг, если loss или градиент не конечны (сети внутри
+    фильтра, этап 6в: один батч с расходящимся фильтром давал nan во всех весах до конца
+    обучения). По умолчанию выключено, чтобы прежние этапы считались как раньше.
     """
     log = get_logger()
     log_epoch = log.debug if quiet else log.info
@@ -106,27 +109,33 @@ def train(model: nn.Module, x_tr, y_tr, x_val, y_val, params: dict, device: torc
     opt = torch.optim.AdamW(model.parameters(), lr=params["lr"], weight_decay=params.get("weight_decay", 1e-4))
     history = []
     best_val, best_state, bad = float("inf"), None, 0
+    skip_nonfinite = params.get("skip_nonfinite", False)
     val0 = mse(model, x_val, y_val, device, loss_fn=loss_fn)
     log_epoch("val loss до обучения (нулевой выход: у гибрида = IMM): %.4f", val0)
     for epoch in range(1, params["epochs"] + 1):
         model.train()
         t0 = time.time()
-        total, n = 0.0, 0
+        total, n, skipped = 0.0, 0, 0
         for idx in _batches(len(x_tr), params["batch"], rng):
             xb = torch.from_numpy(x_tr[idx]).to(device, non_blocking=True)
             yb = torch.from_numpy(y_tr[idx]).to(device, non_blocking=True)
             opt.zero_grad()
             loss = (loss_fn or _mse_loss)(model(xb), yb)
             loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), params.get("clip", 1.0))
+            norm = nn.utils.clip_grad_norm_(model.parameters(), params.get("clip", 1.0))
+            if skip_nonfinite and not bool(torch.isfinite(loss) & torch.isfinite(norm)):
+                skipped += 1
+                continue
             opt.step()
             total += float(loss.detach()) * len(idx)
             n += len(idx)
-        train_loss = total / max(n, 1)
+        train_loss = total / n if n else float("nan")
         val_loss = mse(model, x_val, y_val, device, loss_fn=loss_fn)
         history.append({"epoch": epoch, "train_loss": train_loss, "val_loss": val_loss,
-                        "seconds": time.time() - t0})
+                        "seconds": time.time() - t0, "skipped": skipped})
         log_epoch("эпоха %3d: train %.4f, val %.4f, %.1f с", epoch, train_loss, val_loss, time.time() - t0)
+        if skipped:
+            log.warning("эпоха %3d: пропущено %d батчей с nan/inf в loss или градиенте", epoch, skipped)
         if val_loss < best_val - 1e-5:
             best_val, bad = val_loss, 0
             best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
