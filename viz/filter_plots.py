@@ -19,6 +19,19 @@ METHOD_COLORS = {"CV": "#7f7f7f", "KF": "#1976d2", "IMM": "#d32f2f", "IMM+GRU": 
                  "GRU (без IMM)": "#9ccc65", "Mamba (без IMM)": "#80deea", "IMM (исходный)": "#f48fb1",
                  "CV (исходный)": "#c7c7c7", "KF (исходный)": "#90caf9"}
 MODEL_COLORS = {"CV": "#1976d2", "CA": "#2e7d32", "CT": "#d32f2f"}
+# Методы не из METHOD_COLORS (варианты этапов 6+): цвета по порядку появления, не совпадающие с
+# METHOD_COLORS - иначе matplotlib берёт свой круг, и вариант рисуется цветом KF или IMM
+EXTRA_COLORS = ("#8d6e63", "#fbc02d", "#5c6bc0", "#26a69a", "#ec407a", "#212121", "#827717", "#ff8a65",
+                "#4dd0e1", "#aed581")
+_extra_assigned: dict = {}
+
+
+def method_color(method: str) -> str:
+    if method in METHOD_COLORS:
+        return METHOD_COLORS[method]
+    if method not in _extra_assigned:
+        _extra_assigned[method] = EXTRA_COLORS[len(_extra_assigned) % len(EXTRA_COLORS)]
+    return _extra_assigned[method]
 
 
 def _shade_phases(ax, t, phase) -> None:
@@ -61,7 +74,7 @@ def plot_dynamic_curves(curves: dict, levels: dict, path: Path, title: str) -> N
         for (method, hh), (ms, curve, counts) in curves.items():
             if hh != h:
                 continue
-            color = METHOD_COLORS.get(method)
+            color = method_color(method)
             ax.plot(ms, curve, "-o", ms=3, color=color, label=method)
             ax.axhline(levels[(method, h)], color=color, ls=":", lw=0.8)
         ax.axvline(0, color="black", lw=0.8)
@@ -78,7 +91,7 @@ def plot_by_horizon(ade: dict, path: Path, title: str) -> None:
     fig, ax = plt.subplots(figsize=(6.5, 4.2))
     hs = np.arange(1, config.HORIZON_SCANS + 1) * config.SCAN_PERIOD
     for method, vals in ade.items():
-        ax.plot(hs, vals, "-o", color=METHOD_COLORS.get(method), label=method)
+        ax.plot(hs, vals, "-o", color=method_color(method), label=method)
     ax.set_xlabel("горизонт прогноза, с")
     ax.set_ylabel("ADE по горизонтали, м")
     ax.legend()
@@ -95,7 +108,7 @@ def plot_by_phase(table: dict, path: Path, title: str) -> None:
     x = np.arange(len(phases))
     for i, method in enumerate(methods):
         ax.bar(x + i * width, [table[method].get(p, np.nan) for p in phases], width,
-               color=METHOD_COLORS.get(method), label=method)
+               color=method_color(method), label=method)
     ax.set_xticks(x + width * (len(methods) - 1) / 2)
     ax.set_xticklabels([PHASE_RU[p] for p in phases])
     ax.set_ylabel("ADE по горизонтали, м")
