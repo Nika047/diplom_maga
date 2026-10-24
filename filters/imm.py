@@ -29,6 +29,13 @@ run(rt, with_models=True): те же пути, из которых склады�
     модели может быть set_scan(k) - номер текущего обзора - и forecast_path(x) - свой
     прогноз на 1..H обзоров вместо повторения f.
 
+Доплер (этап 12), без него прогон не меняется: если у трассы есть радиальная скорость
+(rt.vr), сохраняется её невязка к объединённому прогнозу (FilterRun.vr_innov - признак
+сети); при config.DOPPLER_IN_IMM каждая модель после обновления по положению дообновляется по
+радиальной скорости (скалярный EKF, h(x) = v * u, u - единичный вектор от РЛС), и её
+правдоподобие входит в вероятности моделей. Шум отметки и доплера независимы, поэтому
+последовательное обновление равно совместному.
+
 Инициализация - по первым двум обнаруженным отметкам (скорость - разность).
 Сохраняются для этапа 2 (входы корректора): вероятности моделей, невязка
 объединённого прогноза, нормированный квадрат невязки каждой модели.
@@ -58,6 +65,20 @@ class FilterRun:
     forecast: np.ndarray   # (K, H, 3) прогноз положения на 1..H обзоров из обзора k
     forecast_cov: np.ndarray = None  # (K, H, 2, 2) ковариация прогноза по горизонтали (with_cov)
     model_forecast: np.ndarray = None  # (K, M, H, 2) прогноз каждой модели по горизонтали (with_models)
+    vr_innov: np.ndarray = None  # (K,) невязка радиальной скорости объединённого прогноза (если есть rt.vr)
+
+
+def radial(x: np.ndarray, radar_pos: np.ndarray) -> tuple:
+    """Радиальная скорость состояния x и её градиент по состоянию (DIM,)."""
+    d = x[[X, Y, Z]] - radar_pos
+    r = np.linalg.norm(d)
+    u = d / r
+    v = x[[VX, VY, VZ]]
+    h = float(v @ u)
+    grad = np.zeros(DIM)
+    grad[[X, Y, Z]] = (v - h * u) / r
+    grad[[VX, VY, VZ]] = u
+    return h, grad
 
 
 def transition_matrix(m: int, p_stay: float) -> np.ndarray:
@@ -157,6 +178,10 @@ class IMM:
         forecast = np.full((k_total, self.horizon, 3), np.nan)
         fcov = np.full((k_total, self.horizon, 2, 2), np.nan) if with_cov else None
         mfc = np.full((k_total, self.m, self.horizon, 2), np.nan) if with_models else None
+        has_vr = rt.vr is not None
+        vr_innov = np.full(k_total, np.nan) if has_vr else None
+        use_vr = has_vr and config.DOPPLER_IN_IMM
+        var_vr = config.RADAR_SIGMA_VR ** 2
 
         def forecast_at(k, xs, ps, mu):
             paths = self._model_paths(xs, config.SCAN_PERIOD)
@@ -168,7 +193,7 @@ class IMM:
 
         det = np.flatnonzero(rt.detected)
         if len(det) < 2:
-            return FilterRun(est, mu_out, innov, nis, forecast, fcov, mfc)
+            return FilterRun(est, mu_out, innov, nis, forecast, fcov, mfc, vr_innov)
         k0, k1 = det[0], det[1]
         x, p = self._init_state(rt.meas[k0], rt.meas[k1], rt.meas_cov[k0], rt.meas_cov[k1],
                                 rt.t[k1] - rt.t[k0])
@@ -207,6 +232,9 @@ class IMM:
             if rt.detected[k]:
                 z, r = rt.meas[k], rt.meas_cov[k]
                 innov[k] = z - x_pred_comb[[X, Y, Z]]
+                vr_k = rt.vr[k] if has_vr else np.nan
+                if has_vr:
+                    vr_innov[k] = vr_k - radial(x_pred_comb, rt.radar_pos)[0]
                 for j, (xp, pp) in enumerate(preds):
                     nu = z - _H @ xp
                     s = _H @ pp @ _H.T + r
@@ -219,6 +247,15 @@ class IMM:
                     nis[k, j] = d2
                     _, logdet = np.linalg.slogdet(s)
                     loglik[j] = -0.5 * (d2 + logdet + 3 * np.log(2 * np.pi))
+                    if use_vr and not np.isnan(vr_k):
+                        h_vr, g_vr = radial(xs[j], rt.radar_pos)
+                        s_vr = float(g_vr @ ps[j] @ g_vr) + var_vr
+                        k_vr = ps[j] @ g_vr / s_vr
+                        nu_vr = vr_k - h_vr
+                        xs[j] = xs[j] + k_vr * nu_vr
+                        ikh = np.eye(DIM) - np.outer(k_vr, g_vr)
+                        ps[j] = ikh @ ps[j] @ ikh.T + var_vr * np.outer(k_vr, k_vr)
+                        loglik[j] += -0.5 * (nu_vr ** 2 / s_vr + np.log(s_vr) + np.log(2 * np.pi))
                 # 3. Вероятности моделей
                 logw = loglik + np.log(np.maximum(c, 1e-300))
                 logw -= logw.max()
@@ -235,4 +272,4 @@ class IMM:
             est[k] = sum(mu[j] * xs[j] for j in range(self.m))
             mu_out[k] = mu
             forecast_at(k, xs, ps, mu)
-        return FilterRun(est, mu_out, innov, nis, forecast, fcov, mfc)
+        return FilterRun(est, mu_out, innov, nis, forecast, fcov, mfc, vr_innov)

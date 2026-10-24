@@ -24,6 +24,10 @@
 
 Метки начала маневра (этап 5) - onset_labels. Проверяется на этапе 5 на подставной
 трассе с известными началами маневров.
+
+Доплер (этап 12): при config.DOPPLER_IN_NET и радиальной скорости у трассы к признакам
+обзора добавляются измеренная радиальная скорость и её невязка к прогнозу IMM (группа
+«доплер», в конце). Без флага признаки прежние. Причинность - та же проверка на этапе 12.
 """
 
 import numpy as np
@@ -35,14 +39,16 @@ POS = [X, Y, Z]
 VEL = [VX, VY, VZ]
 
 
-def n_features(n_models: int) -> int:
-    return 3 + 3 + 3 + 3 + n_models + n_models + 1
+def n_features(n_models: int, doppler: bool = False) -> int:
+    return 3 + 3 + 3 + 3 + n_models + n_models + 1 + (2 if doppler else 0)
 
 
-def feature_groups(n_models: int) -> dict:
+def feature_groups(n_models: int, doppler: bool = False) -> dict:
     """Группы признаков гибрида -> индексы столбцов (порядок - как в build_windows)."""
     sizes = [("отметка", 3), ("оценка IMM", 3), ("скорость IMM", 3), ("невязка", 3),
              ("вероятности моделей", n_models), ("NIS моделей", n_models), ("дальность", 1)]
+    if doppler:
+        sizes.append(("доплер", 2))
     out, start = {}, 0
     for name, size in sizes:
         out[name] = list(range(start, start + size))
@@ -98,15 +104,16 @@ def build_windows(rt, run, window: int = config.WINDOW_SCANS, horizon: int = con
     (для цели) k + H внутри трассы.
     """
     k_total = len(rt.t)
+    doppler = config.DOPPLER_IN_NET and rt.vr is not None and run.vr_innov is not None
     valid = ~np.isnan(run.est[:, 0])
     if not valid.any():
-        return _empty(window, horizon, len(config.IMM_MODELS), with_target)
+        return _empty(window, horizon, len(config.IMM_MODELS), with_target, doppler)
     first = int(np.argmax(valid))
     k_lo = max(first + window - 1, config.WARMUP_SCANS)
     k_hi = k_total - horizon if with_target else k_total
     ks = np.arange(k_lo, k_hi)
     if len(ks) == 0:
-        return _empty(window, horizon, run.mu.shape[1], with_target)
+        return _empty(window, horizon, run.mu.shape[1], with_target, doppler)
 
     meas, polar = held(rt)
     innov = np.nan_to_num(run.innov)          # при пропуске невязки нет - 0
@@ -128,6 +135,11 @@ def build_windows(rt, run, window: int = config.WINDOW_SCANS, horizon: int = con
         nis[idx],
         rng_km[idx],
     ]
+    if doppler:
+        # Радиальная скорость - как отметка: при пропуске удерживается последняя; невязка при пропуске 0
+        last = np.maximum.accumulate(np.where(rt.detected, np.arange(k_total), -1))
+        vr = np.where(last >= 0, rt.vr[np.maximum(last, 0)], np.nan)
+        feats += [vr[idx][..., None], np.nan_to_num(run.vr_innov)[idx][..., None]]
     x = np.concatenate(feats, axis=-1).astype(np.float32)
     out = {"x": x, "k": ks, "psi": psi}
     if with_target:
@@ -140,8 +152,9 @@ def build_windows(rt, run, window: int = config.WINDOW_SCANS, horizon: int = con
     return {key: val[ok] for key, val in out.items()}
 
 
-def _empty(window, horizon, m, with_target):
-    out = {"x": np.zeros((0, window, n_features(m)), np.float32), "k": np.zeros(0, int), "psi": np.zeros(0)}
+def _empty(window, horizon, m, with_target, doppler=False):
+    out = {"x": np.zeros((0, window, n_features(m, doppler)), np.float32), "k": np.zeros(0, int),
+           "psi": np.zeros(0)}
     if with_target:
         out["y"] = np.zeros((0, horizon, 2), np.float32)
     return out

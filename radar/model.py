@@ -8,10 +8,16 @@
   - отметка - дальность, азимут (от севера по часовой), угол места с гауссовым шумом;
   - пропуски: каждая отметка обнаружена с вероятностью RADAR_PD (по умолчанию 1);
   - для фильтров отметка пересчитывается в декартовы координаты ENU трассы, ковариация -
-    через якобиан пересчёта в измеренной точке.
+    через якобиан пересчёта в измеренной точке;
+  - радиальная скорость (доплер, этап 12) - только при config.DOPPLER_IN_IMM или
+    DOPPLER_IN_NET: проекция истинной скорости на линию визирования плюс шум RADAR_SIGMA_VR.
+    Истинная скорость - по трём последним точкам истины (формула назад второго порядка,
+    точна при постоянном ускорении): будущее положение в измерение не попадает. Шум
+    тянется после всех прежних случайных чисел - отметки положения от флага не меняются.
 
 Проверяется на этапе 1: эмпирические СКО шума равны заданным, нормированная ошибка
-пересчитанных отметок (NEES) в среднем около 3.
+пересчитанных отметок (NEES) в среднем около 3. Доплер - на этапе 12: известный ответ
+радиальной скорости, СКО шума, отметки положения те же.
 """
 
 from dataclasses import dataclass
@@ -35,6 +41,7 @@ class RadarTrack:
     detected: np.ndarray     # (K,) bool
     phase: np.ndarray        # (K,) int8, участок истины в момент обзора
     onsets: list             # индексы обзоров начала маневров
+    vr: np.ndarray = None    # (K,) м/с, измеренная радиальная скорость (этап 12; nan - нет); None - без доплера
 
 
 def to_polar(rel: np.ndarray) -> np.ndarray:
@@ -62,6 +69,17 @@ def converted_cov(polar: np.ndarray) -> np.ndarray:
     return jac @ sig @ np.transpose(jac, (0, 2, 1))
 
 
+def true_radial_velocity(truth: np.ndarray, radar_pos: np.ndarray, period: float = config.SCAN_PERIOD) -> np.ndarray:
+    """Радиальная скорость (K,) по истине: скорость - назад по трём точкам (в обзоре 1 - по двум, в 0 - nan)."""
+    v = np.full_like(truth, np.nan)
+    if len(truth) > 1:
+        v[1] = (truth[1] - truth[0]) / period
+    if len(truth) > 2:
+        v[2:] = (3.0 * truth[2:] - 4.0 * truth[1:-1] + truth[:-2]) / (2.0 * period)
+    rel = truth - radar_pos
+    return np.einsum("ij,ij->i", v, rel) / np.linalg.norm(rel, axis=1)
+
+
 def observe(track: Track) -> RadarTrack:
     """Отметки РЛС по истинной траектории трека."""
     rng = make_track_rng("radar", track.flight_id)
@@ -86,5 +104,8 @@ def observe(track: Track) -> RadarTrack:
     phase = track.phase[idx] if track.phase is not None else np.zeros(n_scans, dtype=np.int8)
     onsets = sorted({int(round((track.t[i] - t[0]) / config.SCAN_PERIOD)) for i in track.turn_onsets})
     onsets = [k for k in onsets if 0 <= k < n_scans]
+    vr = None
+    if config.DOPPLER_IN_IMM or config.DOPPLER_IN_NET:
+        vr = true_radial_velocity(truth, radar_pos) + rng.standard_normal(n_scans) * config.RADAR_SIGMA_VR
     return RadarTrack(track.flight_id, t, truth, radar_pos, polar, meas, converted_cov(polar),
-                      detected, phase, onsets)
+                      detected, phase, onsets, vr)

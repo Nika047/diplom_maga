@@ -76,6 +76,8 @@ def signature(flight_ids: list, window: int = config.WINDOW_SCANS) -> dict:
             "RANDOM_SEED")
     sig = {key: getattr(config, key) for key in keys}
     sig["WINDOW_SCANS"] = window
+    if config.DOPPLER_IN_IMM or config.DOPPLER_IN_NET:       # этап 12; без доплера подпись прежняя
+        sig["DOPPLER"] = [config.DOPPLER_IN_IMM, config.DOPPLER_IN_NET, config.RADAR_SIGMA_VR]
     sig = json.loads(json.dumps(sig))  # кортежи -> списки, как после чтения из файла
     sig["FEATURES_VERSION"] = FEATURES_VERSION
     sig["tracks"] = hashlib.sha256("\n".join(flight_ids).encode("utf-8")).hexdigest()[:16]
