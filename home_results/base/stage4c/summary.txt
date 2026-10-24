@@ -1,0 +1,385 @@
+Сводка: Этап 4в: размер сети и объём данных
+Время: 2026-10-22 15:24:04
+Итог: FAIL: 2 из 311
+
+== Логи (train) против синтетики ==
+скорость q05: логи  10.4, синтетика  12.2 м/с (+17%)
+скорость q50: логи  19.2, синтетика  18.9 м/с (+1%)
+скорость q95: логи  34.8, синтетика  33.6 м/с (+3%)
+|w| на маневре q50: логи  15.2, синтетика  15.3 град/с (+1%)
+|w| на маневре q90: логи  17.8, синтетика  21.9 град/с (+23%)
+
+== Ось «данные (конфигурация этапа 4)»: ADE (м), среднее ± СКО по 3 seed ==
+арх.         ширина слоёв  синт.   парам.        val       test    holdout  вход test val/train обуч., с
+GRU              64     3      0    66506   43.0±0.1   41.0±0.4   58.6±0.2  114.5±1.0      1.15        1
+GRU              64     3   0.25    66506   43.3±0.4   40.9±0.6   59.5±0.3  115.8±2.1      1.16        2
+GRU              64     3    0.5    66506   43.2±0.3   40.4±0.3   60.6±1.4  115.6±1.0      1.14        3
+GRU              64     3      1    66506   43.4±0.6   40.3±0.5   61.3±0.4  117.1±2.1      1.10        4
+GRU              64     3      2    66506   43.6±0.6   40.2±0.4   61.0±0.7  115.7±1.6      1.10        9
+GRU              64     3      4    66506   44.4±0.4   41.4±0.1   61.6±0.5  115.0±1.1      1.19       18
+LSTM            128     2      0   208650   43.4±0.7   40.9±0.3   59.9±0.4  117.2±2.0      1.19        2
+LSTM            128     2   0.25   208650   43.7±0.7   40.8±0.2   60.8±0.5  115.1±1.1      1.04        3
+LSTM            128     2    0.5   208650   43.1±0.5   40.6±0.3   61.0±0.4  115.5±0.2      1.09        5
+LSTM            128     2      1   208650   42.8±0.2   39.8±0.1   61.2±0.9  117.6±1.0      1.10        8
+LSTM            128     2      2   208650   43.7±0.8   40.6±0.4   61.4±0.5  114.4±0.9      1.10       14
+LSTM            128     2      4   208650   43.5±0.7   41.0±0.6   60.7±0.7  114.1±2.5      1.10       23
+Transformer     128     2      0   271370   42.5±0.3   40.8±0.2   58.8±0.5  116.1±0.7      1.12        4
+Transformer     128     2   0.25   271370   42.6±0.2   40.4±0.1   60.1±0.1  118.9±1.2      1.05        7
+Transformer     128     2    0.5   271370   43.0±0.5   40.3±0.4   60.9±0.5  117.7±1.9      1.06       10
+Transformer     128     2      1   271370   42.9±0.6   40.2±0.3   61.9±1.0  118.0±1.0      1.01       15
+Transformer     128     2      2   271370   43.5±0.2   40.5±0.1   61.3±0.3  116.7±0.7      1.03       28
+Transformer     128     2      4   271370   44.0±0.5   40.8±0.2   62.3±0.2  116.0±0.4      1.07       46
+val/train - отношение val loss к train loss в лучшую эпоху (больше 1 - переобучение)
+
+== Ось «размер сети (синтетика x1)»: ADE (м), среднее ± СКО по 3 seed ==
+арх.         ширина слоёв  синт.   парам.        val       test    holdout  вход test val/train обуч., с
+GRU              64     2      1    41546   43.2±0.4   40.3±0.4   60.7±1.4  116.6±1.4      1.11        4
+GRU              64     3      1    66506   43.4±0.6   40.3±0.5   61.3±0.4  117.1±2.1      1.10        4
+GRU              64     4      1    91466   43.6±0.7   40.6±0.5   61.5±0.3  117.0±1.3      1.09        5
+GRU             128     2      1   156810   43.9±0.3   40.8±0.4   60.9±0.8  115.1±0.9      1.09        5
+GRU             128     4      1   354954   43.6±0.3   40.7±0.2   60.7±0.6  116.2±1.7      1.10       10
+GRU             256     2      1   608522   43.5±0.7   40.1±0.3   61.2±0.8  115.6±2.3      1.11        6
+GRU             256     4      1  1398026   43.7±0.4   40.3±0.2   60.9±0.9  116.4±2.2      1.10       12
+GRU             512     2      1  2396682   43.7±1.0   40.4±0.6   61.3±0.4  115.2±1.0      1.08       14
+GRU             512     4      1  5548554   44.3±0.7   40.5±0.3   61.2±0.8  115.8±0.5      1.04       31
+LSTM             64     2      1    55178   43.3±0.2   40.4±0.1   61.1±0.6  115.7±1.6      1.09        5
+LSTM             64     4      1   121738   43.4±0.2   40.3±0.4   61.1±0.3  116.4±1.0      1.08        7
+LSTM            128     2      1   208650   42.8±0.2   39.8±0.1   61.2±0.9  117.6±1.0      1.10        8
+LSTM            128     4      1   472842   42.7±0.2   39.7±0.1   61.6±0.5  118.4±0.7      1.06       14
+LSTM            256     2      1   810506   42.5±0.4   39.6±0.1   61.4±0.7  117.2±1.4      1.13       10
+LSTM            256     4      1  1863178   43.0±0.5   40.3±0.5   60.7±0.7  115.9±2.7      1.11       18
+LSTM            512     2      1  3193866   42.3±0.1   40.4±0.8   61.2±1.6  116.7±2.7      1.14       20
+LSTM            512     4      1  7396362   43.0±0.4   39.8±0.2   61.4±0.6  117.5±0.7      1.06       39
+Transformer      64     2      1    70154   43.4±0.1   40.3±0.2   60.9±0.3  115.9±0.9      1.03       17
+Transformer      64     4      1   137098   44.8±0.5   41.1±0.5   61.5±0.7  117.2±0.5      0.92       13
+Transformer     128     2      1   271370   42.9±0.6   40.2±0.3   61.9±1.0  118.0±1.0      1.01       15
+Transformer     128     4      1   536330   43.4±0.3   40.3±0.3   61.7±1.5  119.2±1.4      1.04       25
+Transformer     256     2      1  1067018   43.0±0.2   40.3±0.1   61.5±0.9  118.4±2.0      1.09       35
+Transformer     256     4      1  2121226   43.8±0.5   40.8±0.5   61.0±0.7  117.3±1.3      1.08       51
+Transformer     512     2      1  4231178   43.8±0.2   40.5±0.4   61.9±0.4  118.9±0.3      1.02       63
+Transformer     512     4      1  8436746   44.1±0.5   40.9±0.4   61.3±0.6  117.4±1.5      1.03      127
+val/train - отношение val loss к train loss в лучшую эпоху (больше 1 - переобучение)
+
+== Большая сеть 256x4 на наибольших данных (синтетика x4) ==
+GRU          test 41.0±0.2, holdout 61.0±1.1, вход 114.7±1.1
+LSTM         test 40.9±0.7, holdout 61.0±1.1, вход 112.8±0.7
+Transformer  test 41.3±0.2, holdout 63.0±0.4, вход 116.0±1.0
+
+== Данные ==
+реальные train: 56 кусков, 16.9 ч; синтетика x1: 1150 траекторий, 61.4 ч; новых партий 3 по 1150
+
+== Время ==
+57.4 мин на cuda
+
+== Проверки ==
+[PASS] Синтетика: скорость в пределах: макс. V/v_max = 1.000, макс. v_min/V = 1.037 (допуск 1.101 на хорду при развороте за шаг)
+[PASS] Синтетика: разворот не круче предела: макс. |w| / min(g tg(phi_max) / V, предел) = 1.002 (допуск 1.15 на сглаживание курса)
+[PASS] Синтетика: вертикальная скорость в пределах: макс. |vz| / vz_max = 1.000
+[PASS] Синтетика: нет скачков позиции: макс. шаг / (V_max dt) = 0.997
+[PASS] Синтетика: скорости близки к логам: макс. отклонение квантилей 17% (допуск 25%)
+[PASS] Синтетика: |w| на маневрах близка к логам: макс. отклонение квантилей 23% (допуск 35%)
+[PASS] Новая синтетика не совпадает с исходной: новых траекторий 3450 в 3 партиях, совпадений имён 0
+[PASS] IMM+GRU, синтетика x0, seed 42: overfit one batch: loss 1.0410 -> 0.0028
+[PASS] IMM+GRU, синтетика x0, seed 42: модель обучилась (val ниже начального): val loss 1.0410 -> 0.8206
+[PASS] IMM+GRU, синтетика x0, seed 42: train loss падает: 0.9321 -> 0.5733 за 16 эпох
+[PASS] IMM+GRU, синтетика x0, seed 43: модель обучилась (val ниже начального): val loss 1.0410 -> 0.8102
+[PASS] IMM+GRU, синтетика x0, seed 43: train loss падает: 0.9300 -> 0.5419 за 19 эпох
+[PASS] IMM+GRU, синтетика x0, seed 44: модель обучилась (val ниже начального): val loss 1.0410 -> 0.8155
+[PASS] IMM+GRU, синтетика x0, seed 44: train loss падает: 0.9339 -> 0.5701 за 16 эпох
+[PASS] IMM+LSTM, синтетика x0, seed 42: overfit one batch: loss 1.0410 -> 0.0005
+[PASS] IMM+LSTM, синтетика x0, seed 42: модель обучилась (val ниже начального): val loss 1.0410 -> 0.8301
+[PASS] IMM+LSTM, синтетика x0, seed 42: train loss падает: 0.9060 -> 0.4159 за 13 эпох
+[PASS] IMM+LSTM, синтетика x0, seed 43: модель обучилась (val ниже начального): val loss 1.0410 -> 0.8441
+[PASS] IMM+LSTM, синтетика x0, seed 43: train loss падает: 0.8941 -> 0.4030 за 13 эпох
+[PASS] IMM+LSTM, синтетика x0, seed 44: модель обучилась (val ниже начального): val loss 1.0410 -> 0.8253
+[PASS] IMM+LSTM, синтетика x0, seed 44: train loss падает: 0.8992 -> 0.3190 за 16 эпох
+[PASS] IMM+Transformer, синтетика x0, seed 42: overfit one batch: loss 1.0410 -> 0.0016
+[PASS] IMM+Transformer, синтетика x0, seed 42: модель обучилась (val ниже начального): val loss 1.0410 -> 0.7859
+[PASS] IMM+Transformer, синтетика x0, seed 42: train loss падает: 0.9336 -> 0.6163 за 18 эпох
+[PASS] IMM+Transformer, синтетика x0, seed 43: модель обучилась (val ниже начального): val loss 1.0410 -> 0.7921
+[PASS] IMM+Transformer, синтетика x0, seed 43: train loss падает: 0.9358 -> 0.6070 за 19 эпох
+[PASS] IMM+Transformer, синтетика x0, seed 44: модель обучилась (val ниже начального): val loss 1.0410 -> 0.7992
+[PASS] IMM+Transformer, синтетика x0, seed 44: train loss падает: 0.9359 -> 0.6218 за 17 эпох
+[PASS] IMM+GRU, синтетика x0.25, seed 42: overfit one batch: loss 1.1747 -> 0.0033
+[PASS] IMM+GRU, синтетика x0.25, seed 42: модель обучилась (val ниже начального): val loss 0.9308 -> 0.7532
+[PASS] IMM+GRU, синтетика x0.25, seed 42: train loss падает: 0.8997 -> 0.4802 за 23 эпох
+[PASS] IMM+GRU, синтетика x0.25, seed 43: модель обучилась (val ниже начального): val loss 0.9308 -> 0.7493
+[PASS] IMM+GRU, синтетика x0.25, seed 43: train loss падает: 0.8992 -> 0.5339 за 18 эпох
+[PASS] IMM+GRU, синтетика x0.25, seed 44: модель обучилась (val ниже начального): val loss 0.9308 -> 0.7475
+[PASS] IMM+GRU, синтетика x0.25, seed 44: train loss падает: 0.8988 -> 0.5193 за 19 эпох
+[PASS] IMM+LSTM, синтетика x0.25, seed 42: overfit one batch: loss 1.1747 -> 0.0006
+[PASS] IMM+LSTM, синтетика x0.25, seed 42: модель обучилась (val ниже начального): val loss 0.9308 -> 0.7626
+[PASS] IMM+LSTM, синтетика x0.25, seed 42: train loss падает: 0.8533 -> 0.4182 за 12 эпох
+[PASS] IMM+LSTM, синтетика x0.25, seed 43: модель обучилась (val ниже начального): val loss 0.9308 -> 0.7437
+[PASS] IMM+LSTM, синтетика x0.25, seed 43: train loss падает: 0.8488 -> 0.4269 за 12 эпох
+[PASS] IMM+LSTM, синтетика x0.25, seed 44: модель обучилась (val ниже начального): val loss 0.9308 -> 0.7330
+[PASS] IMM+LSTM, синтетика x0.25, seed 44: train loss падает: 0.8506 -> 0.3641 за 14 эпох
+[PASS] IMM+Transformer, синтетика x0.25, seed 42: overfit one batch: loss 1.1747 -> 0.0003
+[PASS] IMM+Transformer, синтетика x0.25, seed 42: модель обучилась (val ниже начального): val loss 0.9308 -> 0.7302
+[PASS] IMM+Transformer, синтетика x0.25, seed 42: train loss падает: 0.9118 -> 0.6536 за 15 эпох
+[PASS] IMM+Transformer, синтетика x0.25, seed 43: модель обучилась (val ниже начального): val loss 0.9308 -> 0.7150
+[PASS] IMM+Transformer, синтетика x0.25, seed 43: train loss падает: 0.9122 -> 0.6238 за 21 эпох
+[PASS] IMM+Transformer, синтетика x0.25, seed 44: модель обучилась (val ниже начального): val loss 0.9308 -> 0.7180
+[PASS] IMM+Transformer, синтетика x0.25, seed 44: train loss падает: 0.9132 -> 0.6107 за 23 эпох
+[PASS] IMM+GRU, синтетика x0.5, seed 42: overfit one batch: loss 0.9928 -> 0.0018
+[PASS] IMM+GRU, синтетика x0.5, seed 42: модель обучилась (val ниже начального): val loss 0.8738 -> 0.7079
+[PASS] IMM+GRU, синтетика x0.5, seed 42: train loss падает: 0.8657 -> 0.4881 за 21 эпох
+[PASS] IMM+GRU, синтетика x0.5, seed 43: модель обучилась (val ниже начального): val loss 0.8738 -> 0.6961
+[PASS] IMM+GRU, синтетика x0.5, seed 43: train loss падает: 0.8657 -> 0.4917 за 20 эпох
+[PASS] IMM+GRU, синтетика x0.5, seed 44: модель обучилась (val ниже начального): val loss 0.8738 -> 0.6958
+[PASS] IMM+GRU, синтетика x0.5, seed 44: train loss падает: 0.8670 -> 0.5054 за 19 эпох
+[PASS] IMM+LSTM, синтетика x0.5, seed 42: overfit one batch: loss 0.9928 -> 0.0006
+[PASS] IMM+LSTM, синтетика x0.5, seed 42: модель обучилась (val ниже начального): val loss 0.8738 -> 0.7015
+[PASS] IMM+LSTM, синтетика x0.5, seed 42: train loss падает: 0.8114 -> 0.3437 за 15 эпох
+[PASS] IMM+LSTM, синтетика x0.5, seed 43: модель обучилась (val ниже начального): val loss 0.8738 -> 0.7174
+[PASS] IMM+LSTM, синтетика x0.5, seed 43: train loss падает: 0.8091 -> 0.3671 за 14 эпох
+[PASS] IMM+LSTM, синтетика x0.5, seed 44: модель обучилась (val ниже начального): val loss 0.8738 -> 0.6883
+[PASS] IMM+LSTM, синтетика x0.5, seed 44: train loss падает: 0.8196 -> 0.3875 за 13 эпох
+[PASS] IMM+Transformer, синтетика x0.5, seed 42: overfit one batch: loss 0.9928 -> 0.0002
+[PASS] IMM+Transformer, синтетика x0.5, seed 42: модель обучилась (val ниже начального): val loss 0.8738 -> 0.6982
+[PASS] IMM+Transformer, синтетика x0.5, seed 42: train loss падает: 0.8823 -> 0.6311 за 17 эпох
+[PASS] IMM+Transformer, синтетика x0.5, seed 43: модель обучилась (val ниже начального): val loss 0.8738 -> 0.6900
+[PASS] IMM+Transformer, синтетика x0.5, seed 43: train loss падает: 0.8826 -> 0.6133 за 20 эпох
+[PASS] IMM+Transformer, синтетика x0.5, seed 44: модель обучилась (val ниже начального): val loss 0.8738 -> 0.6950
+[PASS] IMM+Transformer, синтетика x0.5, seed 44: train loss падает: 0.8850 -> 0.5901 за 26 эпох
+[PASS] IMM+GRU, синтетика x1, seed 42: overfit one batch: loss 1.0608 -> 0.0016
+[PASS] IMM+GRU, синтетика x1, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6509
+[PASS] IMM+GRU, синтетика x1, seed 42: train loss падает: 0.8185 -> 0.5068 за 17 эпох
+[PASS] IMM+GRU, синтетика x1, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6600
+[PASS] IMM+GRU, синтетика x1, seed 43: train loss падает: 0.8160 -> 0.5274 за 15 эпох
+[PASS] IMM+GRU, синтетика x1, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6709
+[PASS] IMM+GRU, синтетика x1, seed 44: train loss падает: 0.8178 -> 0.4575 за 22 эпох
+[PASS] IMM+GRU: на данных этапа 4 повторяет его результат: ADE val на этапе 4 42.60 м, здесь (seed 42) 42.60 м
+[PASS] IMM+LSTM, синтетика x1, seed 42: overfit one batch: loss 1.0608 -> 0.0003
+[PASS] IMM+LSTM, синтетика x1, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6536
+[PASS] IMM+LSTM, синтетика x1, seed 42: train loss падает: 0.7753 -> 0.3412 за 15 эпох
+[PASS] IMM+LSTM, синтетика x1, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6685
+[PASS] IMM+LSTM, синтетика x1, seed 43: train loss падает: 0.7763 -> 0.3813 за 13 эпох
+[PASS] IMM+LSTM, синтетика x1, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6609
+[PASS] IMM+LSTM, синтетика x1, seed 44: train loss падает: 0.7693 -> 0.3580 за 14 эпох
+[PASS] IMM+LSTM: на данных этапа 4 повторяет его результат: ADE val на этапе 4 42.52 м, здесь (seed 42) 42.52 м
+[PASS] IMM+Transformer, синтетика x1, seed 42: overfit one batch: loss 1.0608 -> 0.0002
+[PASS] IMM+Transformer, синтетика x1, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6422
+[PASS] IMM+Transformer, синтетика x1, seed 42: train loss падает: 0.8412 -> 0.5935 за 22 эпох
+[PASS] IMM+Transformer, синтетика x1, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6487
+[PASS] IMM+Transformer, синтетика x1, seed 43: train loss падает: 0.8409 -> 0.6135 за 15 эпох
+[PASS] IMM+Transformer, синтетика x1, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6527
+[PASS] IMM+Transformer, синтетика x1, seed 44: train loss падает: 0.8421 -> 0.5983 за 20 эпох
+[PASS] IMM+Transformer: на данных этапа 4 повторяет его результат: ADE val на этапе 4 42.12 м, здесь (seed 42) 42.12 м
+[PASS] IMM+GRU, синтетика x2, seed 42: overfit one batch: loss 1.1067 -> 0.0024
+[PASS] IMM+GRU, синтетика x2, seed 42: модель обучилась (val ниже начального): val loss 0.8073 -> 0.6549
+[PASS] IMM+GRU, синтетика x2, seed 42: train loss падает: 0.7715 -> 0.5011 за 16 эпох
+[PASS] IMM+GRU, синтетика x2, seed 43: модель обучилась (val ниже начального): val loss 0.8073 -> 0.6626
+[PASS] IMM+GRU, синтетика x2, seed 43: train loss падает: 0.7690 -> 0.5205 за 14 эпох
+[PASS] IMM+GRU, синтетика x2, seed 44: модель обучилась (val ниже начального): val loss 0.8073 -> 0.6483
+[PASS] IMM+GRU, синтетика x2, seed 44: train loss падает: 0.7705 -> 0.4886 за 18 эпох
+[PASS] IMM+LSTM, синтетика x2, seed 42: overfit one batch: loss 1.1067 -> 0.0002
+[PASS] IMM+LSTM, синтетика x2, seed 42: модель обучилась (val ниже начального): val loss 0.8073 -> 0.6691
+[PASS] IMM+LSTM, синтетика x2, seed 42: train loss падает: 0.7265 -> 0.4050 за 12 эпох
+[PASS] IMM+LSTM, синтетика x2, seed 43: модель обучилась (val ниже начального): val loss 0.8073 -> 0.6360
+[PASS] IMM+LSTM, синтетика x2, seed 43: train loss падает: 0.7285 -> 0.3691 за 14 эпох
+[PASS] IMM+LSTM, синтетика x2, seed 44: модель обучилась (val ниже начального): val loss 0.8073 -> 0.6673
+[PASS] IMM+LSTM, синтетика x2, seed 44: train loss падает: 0.7321 -> 0.3840 за 13 эпох
+[PASS] IMM+Transformer, синтетика x2, seed 42: overfit one batch: loss 1.1067 -> 0.0002
+[PASS] IMM+Transformer, синтетика x2, seed 42: модель обучилась (val ниже начального): val loss 0.8073 -> 0.6677
+[PASS] IMM+Transformer, синтетика x2, seed 42: train loss падает: 0.7944 -> 0.5856 за 22 эпох
+[PASS] IMM+Transformer, синтетика x2, seed 43: модель обучилась (val ниже начального): val loss 0.8073 -> 0.6499
+[PASS] IMM+Transformer, синтетика x2, seed 43: train loss падает: 0.7925 -> 0.6074 за 13 эпох
+[PASS] IMM+Transformer, синтетика x2, seed 44: модель обучилась (val ниже начального): val loss 0.8073 -> 0.6516
+[PASS] IMM+Transformer, синтетика x2, seed 44: train loss падает: 0.7942 -> 0.5886 за 19 эпох
+[PASS] IMM+GRU, синтетика x4, seed 42: overfit one batch: loss 1.1792 -> 0.0020
+[PASS] IMM+GRU, синтетика x4, seed 42: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6585
+[PASS] IMM+GRU, синтетика x4, seed 42: train loss падает: 0.7218 -> 0.4746 за 20 эпох
+[PASS] IMM+GRU, синтетика x4, seed 43: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6580
+[PASS] IMM+GRU, синтетика x4, seed 43: train loss падает: 0.7147 -> 0.4826 за 19 эпох
+[PASS] IMM+GRU, синтетика x4, seed 44: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6603
+[PASS] IMM+GRU, синтетика x4, seed 44: train loss падает: 0.7201 -> 0.5113 за 13 эпох
+[PASS] IMM+GRU 256x4, синтетика x4, seed 42: overfit one batch: loss 1.1792 -> 0.0001
+[PASS] IMM+GRU 256x4, синтетика x4, seed 42: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6684
+[PASS] IMM+GRU 256x4, синтетика x4, seed 42: train loss падает: 0.6875 -> 0.2630 за 13 эпох
+[PASS] IMM+GRU 256x4, синтетика x4, seed 43: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6636
+[PASS] IMM+GRU 256x4, синтетика x4, seed 43: train loss падает: 0.6866 -> 0.2576 за 13 эпох
+[PASS] IMM+GRU 256x4, синтетика x4, seed 44: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6510
+[PASS] IMM+GRU 256x4, синтетика x4, seed 44: train loss падает: 0.6906 -> 0.2719 за 12 эпох
+[PASS] IMM+LSTM, синтетика x4, seed 42: overfit one batch: loss 1.1792 -> 0.0004
+[PASS] IMM+LSTM, синтетика x4, seed 42: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6625
+[PASS] IMM+LSTM, синтетика x4, seed 42: train loss падает: 0.6780 -> 0.4221 за 11 эпох
+[PASS] IMM+LSTM, синтетика x4, seed 43: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6316
+[PASS] IMM+LSTM, синтетика x4, seed 43: train loss падает: 0.6757 -> 0.3959 за 13 эпох
+[PASS] IMM+LSTM, синтетика x4, seed 44: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6533
+[PASS] IMM+LSTM, синтетика x4, seed 44: train loss падает: 0.6780 -> 0.3809 за 14 эпох
+[PASS] IMM+LSTM 256x4, синтетика x4, seed 42: overfit one batch: loss 1.1792 -> 0.0001
+[PASS] IMM+LSTM 256x4, синтетика x4, seed 42: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6617
+[PASS] IMM+LSTM 256x4, синтетика x4, seed 42: train loss падает: 0.6941 -> 0.3103 за 11 эпох
+[PASS] IMM+LSTM 256x4, синтетика x4, seed 43: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6350
+[PASS] IMM+LSTM 256x4, синтетика x4, seed 43: train loss падает: 0.6909 -> 0.2830 за 12 эпох
+[PASS] IMM+LSTM 256x4, синтетика x4, seed 44: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6571
+[PASS] IMM+LSTM 256x4, синтетика x4, seed 44: train loss падает: 0.6969 -> 0.2793 за 12 эпох
+[PASS] IMM+Transformer, синтетика x4, seed 42: overfit one batch: loss 1.1792 -> 0.0002
+[PASS] IMM+Transformer, синтетика x4, seed 42: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6553
+[PASS] IMM+Transformer, синтетика x4, seed 42: train loss падает: 0.7449 -> 0.5700 за 21 эпох
+[PASS] IMM+Transformer, синтетика x4, seed 43: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6434
+[PASS] IMM+Transformer, синтетика x4, seed 43: train loss падает: 0.7439 -> 0.5705 за 21 эпох
+[PASS] IMM+Transformer, синтетика x4, seed 44: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6625
+[PASS] IMM+Transformer, синтетика x4, seed 44: train loss падает: 0.7446 -> 0.5877 за 13 эпох
+[PASS] IMM+Transformer 256x4, синтетика x4, seed 42: overfit one batch: loss 1.1792 -> 0.0003
+[PASS] IMM+Transformer 256x4, синтетика x4, seed 42: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6555
+[PASS] IMM+Transformer 256x4, синтетика x4, seed 42: train loss падает: 0.7086 -> 0.5038 за 24 эпох
+[PASS] IMM+Transformer 256x4, синтетика x4, seed 43: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6574
+[PASS] IMM+Transformer 256x4, синтетика x4, seed 43: train loss падает: 0.7100 -> 0.4954 за 25 эпох
+[PASS] IMM+Transformer 256x4, синтетика x4, seed 44: модель обучилась (val ниже начального): val loss 0.7988 -> 0.6573
+[PASS] IMM+Transformer 256x4, синтетика x4, seed 44: train loss падает: 0.7104 -> 0.5020 за 24 эпох
+[PASS] IMM+GRU 64x2, seed 42: overfit one batch: loss 1.0608 -> 0.0021
+[PASS] IMM+GRU 64x2, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6572
+[PASS] IMM+GRU 64x2, seed 42: train loss падает: 0.8270 -> 0.5237 за 17 эпох
+[PASS] IMM+GRU 64x2, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6607
+[PASS] IMM+GRU 64x2, seed 43: train loss падает: 0.8196 -> 0.4980 за 21 эпох
+[PASS] IMM+GRU 64x2, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6700
+[PASS] IMM+GRU 64x2, seed 44: train loss падает: 0.8198 -> 0.5208 за 17 эпох
+[PASS] IMM+GRU 64x4, seed 42: overfit one batch: loss 1.0608 -> 0.0028
+[PASS] IMM+GRU 64x4, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6484
+[PASS] IMM+GRU 64x4, seed 42: train loss падает: 0.8222 -> 0.5036 за 17 эпох
+[PASS] IMM+GRU 64x4, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6750
+[PASS] IMM+GRU 64x4, seed 43: train loss падает: 0.8213 -> 0.5303 за 15 эпох
+[PASS] IMM+GRU 64x4, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6669
+[PASS] IMM+GRU 64x4, seed 44: train loss падает: 0.8195 -> 0.4622 за 22 эпох
+[PASS] IMM+GRU 128x2, seed 42: overfit one batch: loss 1.0608 -> 0.0002
+[PASS] IMM+GRU 128x2, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6662
+[PASS] IMM+GRU 128x2, seed 42: train loss падает: 0.7946 -> 0.4065 за 15 эпох
+[PASS] IMM+GRU 128x2, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6518
+[PASS] IMM+GRU 128x2, seed 43: train loss падает: 0.7952 -> 0.4112 за 15 эпох
+[PASS] IMM+GRU 128x2, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6650
+[PASS] IMM+GRU 128x2, seed 44: train loss падает: 0.7948 -> 0.4160 за 15 эпох
+[PASS] IMM+GRU 128x4, seed 42: overfit one batch: loss 1.0608 -> 0.0003
+[PASS] IMM+GRU 128x4, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6712
+[PASS] IMM+GRU 128x4, seed 42: train loss падает: 0.7974 -> 0.3254 за 17 эпох
+[PASS] IMM+GRU 128x4, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6498
+[PASS] IMM+GRU 128x4, seed 43: train loss падает: 0.7981 -> 0.3922 за 14 эпох
+[PASS] IMM+GRU 128x4, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6758
+[PASS] IMM+GRU 128x4, seed 44: train loss падает: 0.7976 -> 0.3637 за 15 эпох
+[PASS] IMM+GRU 256x2, seed 42: overfit one batch: loss 1.0608 -> 0.0012
+[PASS] IMM+GRU 256x2, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6500
+[PASS] IMM+GRU 256x2, seed 42: train loss падает: 0.7745 -> 0.2175 за 15 эпох
+[PASS] IMM+GRU 256x2, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6669
+[PASS] IMM+GRU 256x2, seed 43: train loss падает: 0.7783 -> 0.2308 за 14 эпох
+[PASS] IMM+GRU 256x2, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6681
+[PASS] IMM+GRU 256x2, seed 44: train loss падает: 0.7738 -> 0.2354 за 14 эпох
+[PASS] IMM+GRU 256x4, seed 42: overfit one batch: loss 1.0608 -> 0.0001
+[PASS] IMM+GRU 256x4, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6684
+[PASS] IMM+GRU 256x4, seed 42: train loss падает: 0.7857 -> 0.1657 за 15 эпох
+[PASS] IMM+GRU 256x4, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6632
+[PASS] IMM+GRU 256x4, seed 43: train loss падает: 0.7869 -> 0.1774 за 14 эпох
+[PASS] IMM+GRU 256x4, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6619
+[PASS] IMM+GRU 256x4, seed 44: train loss падает: 0.7921 -> 0.1841 за 14 эпох
+[PASS] IMM+GRU 512x2, seed 42: overfit one batch: loss 1.0608 -> 0.0001
+[PASS] IMM+GRU 512x2, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6794
+[PASS] IMM+GRU 512x2, seed 42: train loss падает: 0.7709 -> 0.1068 за 12 эпох
+[PASS] IMM+GRU 512x2, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6612
+[PASS] IMM+GRU 512x2, seed 43: train loss падает: 0.7700 -> 0.0867 за 13 эпох
+[PASS] IMM+GRU 512x2, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6565
+[PASS] IMM+GRU 512x2, seed 44: train loss падает: 0.7675 -> 0.0747 за 14 эпох
+[PASS] IMM+GRU 512x4, seed 42: overfit one batch: loss 1.0608 -> 0.0003
+[PASS] IMM+GRU 512x4, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6795
+[PASS] IMM+GRU 512x4, seed 42: train loss падает: 0.7936 -> 0.0950 за 12 эпох
+[PASS] IMM+GRU 512x4, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6794
+[PASS] IMM+GRU 512x4, seed 43: train loss падает: 0.7965 -> 0.0955 за 12 эпох
+[PASS] IMM+GRU 512x4, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6676
+[PASS] IMM+GRU 512x4, seed 44: train loss падает: 0.7825 -> 0.0580 за 14 эпох
+[PASS] IMM+LSTM 64x2, seed 42: overfit one batch: loss 1.0608 -> 0.0035
+[PASS] IMM+LSTM 64x2, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6518
+[PASS] IMM+LSTM 64x2, seed 42: train loss падает: 0.7818 -> 0.4576 за 17 эпох
+[PASS] IMM+LSTM 64x2, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6520
+[PASS] IMM+LSTM 64x2, seed 43: train loss падает: 0.7858 -> 0.4770 за 15 эпох
+[PASS] IMM+LSTM 64x2, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6705
+[PASS] IMM+LSTM 64x2, seed 44: train loss падает: 0.7819 -> 0.4921 за 14 эпох
+[PASS] IMM+LSTM 64x4, seed 42: overfit one batch: loss 1.0608 -> 0.0033
+[PASS] IMM+LSTM 64x4, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6678
+[PASS] IMM+LSTM 64x4, seed 42: train loss падает: 0.8225 -> 0.4495 за 17 эпох
+[PASS] IMM+LSTM 64x4, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6703
+[PASS] IMM+LSTM 64x4, seed 43: train loss падает: 0.8368 -> 0.4730 за 15 эпох
+[PASS] IMM+LSTM 64x4, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6724
+[PASS] IMM+LSTM 64x4, seed 44: train loss падает: 0.8188 -> 0.4879 за 14 эпох
+[PASS] IMM+LSTM 128x4, seed 42: overfit one batch: loss 1.0608 -> 0.0008
+[PASS] IMM+LSTM 128x4, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6615
+[PASS] IMM+LSTM 128x4, seed 42: train loss падает: 0.8025 -> 0.3346 за 15 эпох
+[PASS] IMM+LSTM 128x4, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6558
+[PASS] IMM+LSTM 128x4, seed 43: train loss падает: 0.8005 -> 0.3829 за 13 эпох
+[PASS] IMM+LSTM 128x4, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6506
+[PASS] IMM+LSTM 128x4, seed 44: train loss падает: 0.7971 -> 0.3607 за 14 эпох
+[PASS] IMM+LSTM 256x2, seed 42: overfit one batch: loss 1.0608 -> 0.0001
+[PASS] IMM+LSTM 256x2, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6712
+[PASS] IMM+LSTM 256x2, seed 42: train loss падает: 0.7702 -> 0.1891 за 15 эпох
+[PASS] IMM+LSTM 256x2, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6537
+[PASS] IMM+LSTM 256x2, seed 43: train loss падает: 0.7694 -> 0.2375 за 13 эпох
+[PASS] IMM+LSTM 256x2, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6574
+[PASS] IMM+LSTM 256x2, seed 44: train loss падает: 0.7612 -> 0.2132 за 14 эпох
+[PASS] IMM+LSTM 256x4, seed 42: overfit one batch: loss 1.0608 -> 0.0003
+[PASS] IMM+LSTM 256x4, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6708
+[PASS] IMM+LSTM 256x4, seed 42: train loss падает: 0.7988 -> 0.1964 за 15 эпох
+[PASS] IMM+LSTM 256x4, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6554
+[PASS] IMM+LSTM 256x4, seed 43: train loss падает: 0.7906 -> 0.2149 за 14 эпох
+[PASS] IMM+LSTM 256x4, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6513
+[PASS] IMM+LSTM 256x4, seed 44: train loss падает: 0.7973 -> 0.2112 за 14 эпох
+[PASS] IMM+LSTM 512x2, seed 42: overfit one batch: loss 1.0608 -> 0.0003
+[PASS] IMM+LSTM 512x2, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6602
+[PASS] IMM+LSTM 512x2, seed 42: train loss падает: 0.7658 -> 0.0718 за 15 эпох
+[PASS] IMM+LSTM 512x2, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6461
+[PASS] IMM+LSTM 512x2, seed 43: train loss падает: 0.7647 -> 0.1257 за 13 эпох
+[PASS] IMM+LSTM 512x2, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6366
+[PASS] IMM+LSTM 512x2, seed 44: train loss падает: 0.7617 -> 0.0648 за 15 эпох
+[PASS] IMM+LSTM 512x4, seed 42: overfit one batch: loss 1.0608 -> 0.0000
+[PASS] IMM+LSTM 512x4, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6653
+[PASS] IMM+LSTM 512x4, seed 42: train loss падает: 0.8059 -> 0.1341 за 13 эпох
+[PASS] IMM+LSTM 512x4, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6658
+[PASS] IMM+LSTM 512x4, seed 43: train loss падает: 0.7942 -> 0.1459 за 13 эпох
+[PASS] IMM+LSTM 512x4, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6520
+[PASS] IMM+LSTM 512x4, seed 44: train loss падает: 0.7924 -> 0.0954 за 14 эпох
+[PASS] IMM+Transformer 64x2, seed 42: overfit one batch: loss 1.0608 -> 0.0004
+[PASS] IMM+Transformer 64x2, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6648
+[PASS] IMM+Transformer 64x2, seed 42: train loss падает: 0.8896 -> 0.6389 за 19 эпох
+[PASS] IMM+Transformer 64x2, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6511
+[PASS] IMM+Transformer 64x2, seed 43: train loss падает: 0.8861 -> 0.5964 за 48 эпох
+[PASS] IMM+Transformer 64x2, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6570
+[PASS] IMM+Transformer 64x2, seed 44: train loss падает: 0.8893 -> 0.6149 за 31 эпох
+[PASS] IMM+Transformer 64x4, seed 42: overfit one batch: loss 1.0608 -> 0.0005
+[PASS] IMM+Transformer 64x4, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6732
+[PASS] IMM+Transformer 64x4, seed 42: train loss падает: 0.8861 -> 0.6391 за 12 эпох
+[PASS] IMM+Transformer 64x4, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6665
+[PASS] IMM+Transformer 64x4, seed 43: train loss падает: 0.8817 -> 0.6273 за 15 эпох
+[PASS] IMM+Transformer 64x4, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6789
+[PASS] IMM+Transformer 64x4, seed 44: train loss падает: 0.8867 -> 0.6332 за 13 эпох
+[PASS] IMM+Transformer 128x4, seed 42: overfit one batch: loss 1.0608 -> 0.0002
+[PASS] IMM+Transformer 128x4, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6663
+[PASS] IMM+Transformer 128x4, seed 42: train loss падает: 0.8355 -> 0.5745 за 17 эпох
+[PASS] IMM+Transformer 128x4, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6543
+[PASS] IMM+Transformer 128x4, seed 43: train loss падает: 0.8371 -> 0.5866 за 15 эпох
+[PASS] IMM+Transformer 128x4, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6645
+[PASS] IMM+Transformer 128x4, seed 44: train loss падает: 0.8393 -> 0.5663 за 19 эпох
+[PASS] IMM+Transformer 256x2, seed 42: overfit one batch: loss 1.0608 -> 0.0004
+[PASS] IMM+Transformer 256x2, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6555
+[PASS] IMM+Transformer 256x2, seed 42: train loss падает: 0.8033 -> 0.5729 за 17 эпох
+[PASS] IMM+Transformer 256x2, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6530
+[PASS] IMM+Transformer 256x2, seed 43: train loss падает: 0.8016 -> 0.5490 за 25 эпох
+[PASS] IMM+Transformer 256x2, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6604
+[PASS] IMM+Transformer 256x2, seed 44: train loss падает: 0.8045 -> 0.5537 за 23 эпох
+[PASS] IMM+Transformer 256x4, seed 42: overfit one batch: loss 1.0608 -> 0.0016
+[PASS] IMM+Transformer 256x4, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6722
+[PASS] IMM+Transformer 256x4, seed 42: train loss падает: 0.7973 -> 0.5416 за 16 эпох
+[PASS] IMM+Transformer 256x4, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6653
+[PASS] IMM+Transformer 256x4, seed 43: train loss падает: 0.8008 -> 0.5212 за 19 эпох
+[PASS] IMM+Transformer 256x4, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6755
+[PASS] IMM+Transformer 256x4, seed 44: train loss падает: 0.7976 -> 0.5549 за 14 эпох
+[FAIL] IMM+Transformer 512x2, seed 42: overfit one batch: loss 1.0608 -> 0.3028
+[PASS] IMM+Transformer 512x2, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6703
+[PASS] IMM+Transformer 512x2, seed 42: train loss падает: 0.7778 -> 0.5711 за 17 эпох
+[PASS] IMM+Transformer 512x2, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6734
+[PASS] IMM+Transformer 512x2, seed 43: train loss падает: 0.7814 -> 0.5884 за 13 эпох
+[PASS] IMM+Transformer 512x2, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6660
+[PASS] IMM+Transformer 512x2, seed 44: train loss падает: 0.7788 -> 0.5895 за 14 эпох
+[FAIL] IMM+Transformer 512x4, seed 42: overfit one batch: loss 1.0608 -> 0.5401
+[PASS] IMM+Transformer 512x4, seed 42: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6718
+[PASS] IMM+Transformer 512x4, seed 42: train loss падает: 0.7805 -> 0.5910 за 12 эпох
+[PASS] IMM+Transformer 512x4, seed 43: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6739
+[PASS] IMM+Transformer 512x4, seed 43: train loss падает: 0.7800 -> 0.5353 за 19 эпох
+[PASS] IMM+Transformer 512x4, seed 44: модель обучилась (val ниже начального): val loss 0.8208 -> 0.6584
+[PASS] IMM+Transformer 512x4, seed 44: train loss падает: 0.7790 -> 0.5737 за 14 эпох
