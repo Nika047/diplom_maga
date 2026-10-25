@@ -25,6 +25,9 @@
 Метки начала маневра (этап 5) - onset_labels. Проверяется на этапе 5 на подставной
 трассе с известными началами маневров.
 
+Класс будущего движения «прямо / влево / вправо» (этап 14, цель гипотез) - turn_class.
+Проверяется на этапе 14 на подставной трассе.
+
 Доплер (этап 12): при config.DOPPLER_IN_NET и радиальной скорости у трассы к признакам
 обзора добавляются измеренная радиальная скорость и её невязка к прогнозу IMM (группа
 «доплер», в конце). Без флага признаки прежние. Причинность - та же проверка на этапе 12.
@@ -235,6 +238,27 @@ def onset_labels(rt, ks: np.ndarray, ahead: int = config.ONSET_AHEAD,
     for o in rt.onsets:
         out[(ks >= o - ahead) & (ks <= o + behind)] = 1.0
     return out
+
+
+def turn_class(rt, ks: np.ndarray, horizon: int = config.HORIZON_SCANS,
+               threshold_deg: float = config.MULTI_TURN_DEG) -> np.ndarray:
+    """
+    Класс будущего движения в обзорах ks (этап 14): 0 - прямо, 1 - влево, 2 - вправо. По истине:
+    курс хорды (k-1 -> k) и хорды (k+H-1 -> k+H); изменение меньше threshold_deg - «прямо»,
+    иначе по знаку (курс от севера по часовой: рост - вправо). Цель, а не признак - смотрит в
+    будущее, во входы сети не подаётся.
+    """
+    ks = np.asarray(ks)
+    p = rt.truth[:, :2]
+
+    def course(k):
+        d = p[k] - p[k - 1]
+        return np.arctan2(d[:, 0], d[:, 1])
+
+    dpsi = np.degrees(np.angle(np.exp(1j * (course(ks + horizon) - course(ks)))))
+    out = np.where(dpsi > 0, 2, 1)
+    out[np.abs(dpsi) < threshold_deg] = 0
+    return out.astype(np.int64)
 
 
 # ============================================================================
