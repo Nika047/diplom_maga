@@ -60,6 +60,11 @@ class WindowSet:
                          self.x_e2e[sel], self.y_e2e[sel], self.psi_e2e[sel], [self.flight_ids[i] for i in keep])
 
 
+def subset(ws: WindowSet, mask: np.ndarray) -> WindowSet:
+    """Окна по маске (этап 16: эксперты учатся на своей части окон); трассы и flight_ids те же."""
+    return WindowSet(*(getattr(ws, f)[mask] for f in _FIELDS), ws.flight_ids)
+
+
 def concat(sets: list) -> WindowSet:
     """Объединение наборов окон (этап 4в); номера трасс сдвигаются."""
     offsets = np.cumsum([0] + [len(s.flight_ids) for s in sets[:-1]])
