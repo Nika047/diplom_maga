@@ -5,18 +5,23 @@
 
 Проверки (в сводку): overfit one batch, «модель обучилась» (val ниже, чем у нулевого
 выхода), train loss падает.
+
+Веса примеров (этап 13): weights=(веса train, веса val) - цель упаковывается вместе с весом
+(trainer.weighted_mse), и обучение, overfit и ранняя остановка идут по взвешенному loss. Без
+весов всё как раньше.
 """
 
 import time
 from pathlib import Path
 
+import numpy as np
 import torch
 
 import config
 from common.rng import make_rng
 from models import build_corrector
 from training import dataset
-from training.trainer import overfit_one_batch, predict, train
+from training.trainer import overfit_one_batch, predict, train, weighted_mse
 from viz import train_plots
 
 
@@ -27,7 +32,8 @@ def slug(label: str) -> str:
 def run_experiment(label: str, corrector: str, mode: str, ws_tr, ws_val, params: dict, device,
                    summary, log, smoke: bool, out_dir: Path, art_dir: Path,
                    window: int = config.WINDOW_SCANS, seed: int = config.RANDOM_SEED,
-                   model_kwargs: dict = None, overfit: bool = True, extra_sets: dict = None) -> dict:
+                   model_kwargs: dict = None, overfit: bool = True, extra_sets: dict = None,
+                   weights: tuple = None) -> dict:
     """
     Возвращает {"pred": поправки или смещения на val в метрах (N, H, 2), "history": ...,
     "extra": {имя: прогноз на наборе extra_sets[имя]}}.
@@ -40,6 +46,11 @@ def run_experiment(label: str, corrector: str, mode: str, ws_tr, ws_val, params:
     tr, va = ws_tr.view(mode), ws_val.view(mode)
     norm = dataset.Normalizer.fit(tr)
     x_tr, y_tr, x_val, y_val = norm.x(tr.x), norm.y(tr.y), norm.x(va.x), norm.y(va.y)
+    loss_fn = None
+    if weights is not None:
+        def pack(y, w):
+            return np.concatenate([y.reshape(len(y), -1), np.asarray(w, np.float32)[:, None]], axis=1)
+        y_tr, y_val, loss_fn = pack(y_tr, weights[0]), pack(y_val, weights[1]), weighted_mse
 
     if overfit:
         rng = make_rng("training", seed)
@@ -47,7 +58,7 @@ def run_experiment(label: str, corrector: str, mode: str, ws_tr, ws_val, params:
         torch.manual_seed(seed)
         model = build_corrector(corrector, x_tr.shape[-1], config.HORIZON_SCANS, window, **model_kwargs)
         first, last = overfit_one_batch(model, x_tr[batch_idx], y_tr[batch_idx], config.OVERFIT_STEPS, 3e-3,
-                                        device)
+                                        device, loss_fn=loss_fn)
         summary.check(f"{label}: overfit one batch", last < config.OVERFIT_TARGET * first,
                       f"loss {first:.4f} -> {last:.4f}")
 
@@ -56,7 +67,7 @@ def run_experiment(label: str, corrector: str, mode: str, ws_tr, ws_val, params:
     torch.manual_seed(seed)
     model = build_corrector(corrector, x_tr.shape[-1], config.HORIZON_SCANS, window, **model_kwargs)
     t0 = time.time()
-    history, _ = train(model, x_tr, y_tr, x_val, y_val, params, device, rng)
+    history, _ = train(model, x_tr, y_tr, x_val, y_val, params, device, rng, loss_fn=loss_fn)
     train_s = time.time() - t0
     ep = history["epochs"]
     summary.check(f"{label}: модель обучилась (val ниже начального)",

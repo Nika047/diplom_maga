@@ -41,6 +41,13 @@ def _mse_loss(pred: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
     return ((pred - y) ** 2).mean()
 
 
+def weighted_mse(pred: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+    """MSE с весом примера (этап 13): y (N, H*2 + 1) - цель и вес в последнем столбце; среднее с весами."""
+    w = y[:, -1]
+    err = ((pred.reshape(len(y), -1) - y[:, :-1]) ** 2).mean(dim=1)
+    return (w * err).sum() / w.sum()
+
+
 @torch.no_grad()
 def mse(model: nn.Module, x: np.ndarray, y: np.ndarray, device: torch.device, batch: int = 4096,
         loss_fn=None) -> float:
