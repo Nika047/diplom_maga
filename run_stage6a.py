@@ -51,7 +51,7 @@ from training import dataset  # noqa: E402
 from training.experiment import run_experiment  # noqa: E402
 from training.trainer import pick_device  # noqa: E402
 from tuning import search  # noqa: E402
-from viz.filter_plots import METHOD_COLORS  # noqa: E402
+from viz.filter_plots import method_color  # noqa: E402
 from viz.plots import _save  # noqa: E402
 
 # Настройки, зависящие от устройства
@@ -122,7 +122,7 @@ def plot_levels(table: dict, levels: tuple, key: str, path: Path, title: str) ->
         base = method.rsplit(" (обучен", 1)[0]
         retrained = "этом P_d" in method
         ax.errorbar(levels, vals.mean(axis=1), yerr=vals.std(axis=1), fmt="s" if retrained else "o", ms=5,
-                    capsize=3, color=METHOD_COLORS.get(base), ls=":" if retrained else "-",
+                    capsize=3, color=method_color(base), ls=":" if retrained else "-",
                     mfc="white" if retrained else None, label=method)
     ax.set_xlabel("вероятность обнаружения P_d")
     ax.set_ylabel("ADE, м" if key == "ade" else f"ADE ({key}), м")
