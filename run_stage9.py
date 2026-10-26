@@ -75,6 +75,20 @@ def test_track() -> Track:
     return phases.annotate(Track("aug_test#0", "real", "test", t, pos, log_file="aug_test.csv"))
 
 
+def augmented(real: list, window: int, tag: str) -> tuple:
+    """
+    Расширение для обучения в других этапах (этап 19: 6в, 6г с --aug): копии реальных треков train
+    всех видов в порядке KINDS и их окна из кэша этапа 9 (порядок совпадает с окнами). Вызывать
+    внутри config_override с параметрами IMM этапа 4. Возвращает (копии, [окна по видам]).
+    """
+    with open(config.CACHE_DIR / "stage0" / "calibration.json", encoding="utf-8") as fh:
+        limits = generator.Limits(**json.load(fh))
+    copies = {kind: augment.augment(real, kind, limits)[0] for kind in KINDS}
+    cache = config.CACHE_DIR / f"{STAGE}{tag}"
+    ws = [dataset.load_or_build(f"aug_{kind}{tag}_w{window}", cs, cache, window=window) for kind, cs in copies.items()]
+    return [c for cs in copies.values() for c in cs], ws
+
+
 def check_augment(summary: StageSummary) -> None:
     tr = test_track()
     m, s, r = augment.mirror(tr), augment.speed_scale(tr, 1.15), augment.radar_copy(tr, 1)

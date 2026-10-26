@@ -181,7 +181,7 @@ class IMM:
         has_vr = rt.vr is not None
         vr_innov = np.full(k_total, np.nan) if has_vr else None
         use_vr = has_vr and config.DOPPLER_IN_IMM
-        var_vr = config.RADAR_SIGMA_VR ** 2
+        var_vr = (config.FILTER_SIGMA_VR or config.RADAR_SIGMA_VR) ** 2
 
         def forecast_at(k, xs, ps, mu):
             paths = self._model_paths(xs, config.SCAN_PERIOD)

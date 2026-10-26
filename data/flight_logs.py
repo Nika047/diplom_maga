@@ -1,7 +1,9 @@
 """
 Чтение и очистка логов полётов EdgeTX/OpenTX из flight_logs/.
 
-Из лога берутся только время, GPS и высота (истина) и режим полёта (для анализа).
+Из лога берутся только время, GPS и высота (истина) и режим полёта (для анализа). Скорость
+GPS-приёмника (GSpd, Hdg, VSpd группы GPS) переносится в Track.vel_log только для доплера по
+телеметрии (этап 18); во входы моделей не идёт.
 Очистка, по шагам:
   1. строки без GPS, с нулевыми координатами или высотой вне [ALT_MIN, ALT_MAX];
   2. повторы времени и «зависшая» телеметрия (те же координаты и высота подряд);
@@ -52,6 +54,7 @@ class RawLog:
     modes: list
     n_rows: int
     n_bad_rows: int
+    vel: np.ndarray = None   # (N, 3) м/с ENU по GSpd, Hdg, VSpd; nan - нет в строке
 
 
 @dataclass
@@ -101,6 +104,29 @@ def _clean_mode(value: str) -> str:
     return value.strip().strip('"').strip().rstrip("*").strip()
 
 
+def _velocity_columns(header: list) -> tuple:
+    """Индексы GSpd, Hdg группы GPS (первые после столбца GPS; у части логов есть вторые Hdg, GSpd
+    от полётного контроллера раньше GPS) и VSpd; множитель GSpd в м/с."""
+    names = [h.strip() for h in header]
+    start = names.index("GPS") if "GPS" in names else 0
+
+    def find(prefix):
+        hits = [i for i, n in enumerate(names) if n.startswith(prefix)]
+        after = [i for i in hits if i > start]
+        return (after or hits or [None])[0]
+
+    i_spd, i_hdg = find("GSpd"), find("Hdg")
+    scale = 1.0 / 3.6 if i_spd is not None and "kmh" in names[i_spd] else 1.0
+    return i_spd, i_hdg, find("VSpd"), scale
+
+
+def _float(row: list, i) -> float:
+    try:
+        return float(row[i]) if i is not None else float("nan")
+    except (IndexError, ValueError):
+        return float("nan")
+
+
 def read_log(path: Path) -> RawLog:
     """Читает CSV; строки с неразборчивым временем или GPS пропускаются (считаются в n_bad_rows)."""
     with open(path, encoding="utf-8", errors="replace", newline="") as fh:
@@ -111,7 +137,8 @@ def read_log(path: Path) -> RawLog:
             col.setdefault(name.strip(), i)  # при повторе имени берём первое
         i_date, i_time, i_gps = col["Date"], col["Time"], col["GPS"]
         i_alt, i_fm = col["Alt(m)"], col.get("FM")
-        t, lat, lon, alt, modes = [], [], [], [], []
+        i_spd, i_hdg, i_vs, spd_scale = _velocity_columns(header)
+        t, lat, lon, alt, modes, vel = [], [], [], [], [], []
         n_rows = n_bad = 0
         for row in reader:
             n_rows += 1
@@ -128,8 +155,10 @@ def read_log(path: Path) -> RawLog:
             lon.append(lo)
             alt.append(al)
             modes.append(_clean_mode(row[i_fm]) if i_fm is not None and i_fm < len(row) else "")
+            gs, hdg = _float(row, i_spd) * spd_scale, np.radians(_float(row, i_hdg))
+            vel.append((gs * np.sin(hdg), gs * np.cos(hdg), _float(row, i_vs)))
     return RawLog(path.name, aircraft_from_filename(path.name), np.array(t), np.array(lat),
-                  np.array(lon), np.array(alt), modes, n_rows, n_bad)
+                  np.array(lon), np.array(alt), modes, n_rows, n_bad, np.array(vel).reshape(-1, 3))
 
 
 def detect_firmware(modes: list) -> str:
@@ -254,6 +283,7 @@ def clean_log(raw: RawLog) -> tuple:
     """Очистка одного лога -> (список Track, CleanStats)."""
     stats = CleanStats(rows=raw.n_rows, bad_rows=raw.n_bad_rows)
     t, lat, lon, alt = raw.t, raw.lat, raw.lon, raw.alt
+    vel = raw.vel if raw.vel is not None else np.full((len(t), 3), np.nan)
     modes = np.array(raw.modes, dtype=object)
 
     ok = ~((lat == 0) & (lon == 0)) & (np.abs(lat) <= 90) & (np.abs(lon) <= 180)
@@ -275,10 +305,10 @@ def clean_log(raw: RawLog) -> tuple:
                 continue
         keep_idx.append(i)
     idx = np.array(keep_idx, dtype=int)
-    t, lat, lon, alt, modes = t[idx], lat[idx], lon[idx], alt[idx], modes[idx]
+    t, lat, lon, alt, modes, vel = t[idx], lat[idx], lon[idx], alt[idx], modes[idx], vel[idx]
 
     keep, new_piece = _jump_filter(t, lat, lon, alt, stats)
-    t, lat, lon, alt, modes, new_piece = (a[keep] for a in (t, lat, lon, alt, modes, new_piece))
+    t, lat, lon, alt, modes, new_piece, vel = (a[keep] for a in (t, lat, lon, alt, modes, new_piece, vel))
 
     cut = new_piece.copy()
     if len(t):
@@ -299,9 +329,10 @@ def clean_log(raw: RawLog) -> tuple:
                 continue
             pos = geodetic_to_enu(lat[sel], lon[sel], alt[sel], lat[sel[0]], lon[sel[0]], alt[sel[0]])
             t_sel, lat_sel, lon_sel, mode_sel = t[sel] - t[sel[0]], lat[sel], lon[sel], list(modes[sel])
+            vel_sel = vel[sel]
             if config.RETIME:
-                t_sel, pos, (lat_sel, lon_sel, idx) = retime_and_resample(
-                    t_sel, pos, [lat_sel, lon_sel, np.arange(len(sel))])
+                t_sel, pos, (lat_sel, lon_sel, idx, vel_sel) = retime_and_resample(
+                    t_sel, pos, [lat_sel, lon_sel, np.arange(len(sel)), vel_sel])
                 mode_sel = [mode_sel[int(round(i))] for i in idx]
             tracks.append(Track(
                 flight_id=f"{stem}#{len(tracks)}",
@@ -314,10 +345,31 @@ def clean_log(raw: RawLog) -> tuple:
                 lat=lat_sel,
                 lon=lon_sel,
                 flight_mode=mode_sel,
+                vel_log=np.asarray(vel_sel, dtype=float),
             ))
             stats.kept_points += len(sel)
     stats.chunks = len(tracks)
     return tracks, stats
+
+
+def attach_log_velocity(tracks: list, logs_dir: Path = config.FLIGHT_LOGS_DIR) -> tuple:
+    """
+    Скорость по телеметрии (Track.vel_log) для треков из кэша этапа 0, собранных до её появления:
+    логи читаются и очищаются заново, трек сопоставляется по flight_id, совпадение координат
+    проверяется. Меняет треки на месте; возвращает (число с vel_log, число несовпадений).
+    """
+    fresh = {tr.flight_id: tr for tr in load_all_logs(logs_dir)[0]}
+    attached = mismatch = 0
+    for tr in tracks:
+        if tr.source == "synth":
+            continue
+        new = fresh.get(tr.flight_id)
+        if new is None or new.pos.shape != tr.pos.shape or not np.allclose(new.pos, tr.pos, atol=1e-6):
+            mismatch += 1
+            continue
+        tr.vel_log = new.vel_log
+        attached += 1
+    return attached, mismatch
 
 
 def load_all_logs(logs_dir: Path = config.FLIGHT_LOGS_DIR) -> tuple:

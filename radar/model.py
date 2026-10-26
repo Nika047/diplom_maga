@@ -14,6 +14,8 @@
     Истинная скорость - по трём последним точкам истины (формула назад второго порядка,
     точна при постоянном ускорении): будущее положение в измерение не попадает. Шум
     тянется после всех прежних случайных чисел - отметки положения от флага не меняются.
+    При config.DOPPLER_TRUTH = "telemetry" (этап 18) у реальных полётов истинная скорость -
+    скорость GPS-приёмника из лога (Track.vel_log), где она есть.
 
 Проверяется на этапе 1: эмпирические СКО шума равны заданным, нормированная ошибка
 пересчитанных отметок (NEES) в среднем около 3. Доплер - на этапе 12: известный ответ
@@ -69,13 +71,19 @@ def converted_cov(polar: np.ndarray) -> np.ndarray:
     return jac @ sig @ np.transpose(jac, (0, 2, 1))
 
 
-def true_radial_velocity(truth: np.ndarray, radar_pos: np.ndarray, period: float = config.SCAN_PERIOD) -> np.ndarray:
-    """Радиальная скорость (K,) по истине: скорость - назад по трём точкам (в обзоре 1 - по двум, в 0 - nan)."""
+def true_radial_velocity(truth: np.ndarray, radar_pos: np.ndarray, period: float = config.SCAN_PERIOD,
+                         vel: np.ndarray = None) -> np.ndarray:
+    """
+    Радиальная скорость (K,) по истине: скорость - назад по трём точкам (в обзоре 1 - по двум, в 0 -
+    nan). vel (K, 3) - скорость по телеметрии (этап 18): где она есть, берётся она.
+    """
     v = np.full_like(truth, np.nan)
     if len(truth) > 1:
         v[1] = (truth[1] - truth[0]) / period
     if len(truth) > 2:
         v[2:] = (3.0 * truth[2:] - 4.0 * truth[1:-1] + truth[:-2]) / (2.0 * period)
+    if vel is not None:
+        v = np.where(np.isfinite(vel).all(axis=1, keepdims=True), vel, v)
     rel = truth - radar_pos
     return np.einsum("ij,ij->i", v, rel) / np.linalg.norm(rel, axis=1)
 
@@ -106,6 +114,9 @@ def observe(track: Track) -> RadarTrack:
     onsets = [k for k in onsets if 0 <= k < n_scans]
     vr = None
     if config.DOPPLER_IN_IMM or config.DOPPLER_IN_NET:
-        vr = true_radial_velocity(truth, radar_pos) + rng.standard_normal(n_scans) * config.RADAR_SIGMA_VR
+        vel = None
+        if config.DOPPLER_TRUTH == "telemetry" and track.vel_log is not None:
+            vel = np.column_stack([np.interp(t, track.t, track.vel_log[:, j]) for j in range(3)])
+        vr = true_radial_velocity(truth, radar_pos, vel=vel) + rng.standard_normal(n_scans) * config.RADAR_SIGMA_VR
     return RadarTrack(track.flight_id, t, truth, radar_pos, polar, meas, converted_cov(polar),
                       detected, phase, onsets, vr)

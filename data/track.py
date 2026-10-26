@@ -24,6 +24,9 @@ class Track:
     lat: Optional[np.ndarray] = None   # (N,) градусы, только для логов - для карты
     lon: Optional[np.ndarray] = None
     flight_mode: Optional[list] = None  # коды режима по точкам, только для анализа
+    # (N, 3) м/с ENU по телеметрии GPS (GSpd, Hdg, VSpd), только логи; нужна лишь для доплера по
+    # телеметрии (этап 18, data/flight_logs.attach_log_velocity), во входы не идёт
+    vel_log: Optional[np.ndarray] = None
     # Заполняются разметкой участков (data/phases.py)
     speed: Optional[np.ndarray] = None   # (N,) м/с, горизонтальная
     omega: Optional[np.ndarray] = None   # (N,) град/с, скорость разворота (nan - не определена)

@@ -24,6 +24,10 @@ A и Б1 - это оговорка к сравнению). Оценка на о�
 дома на merged один батч с расходящимся фильтром делал nan все веса Б2 (seed 44).
 Шаг, при котором при выборе были такие пропуски, считается неустойчивым и не выбирается;
 разошедшиеся seed (не обучилась или прогноз не конечен) не входят в средние.
+
+--aug (этап 19, решение пользователя 26.10.2026): обучение на реальных + расширенных реальных
+(этап 9) + синтетике; результаты - в results/stage6c_aug/, веса - artifacts/stage6c_aug/; A
+сверяется с «+ все расширения» этапа 9.
 """
 
 import argparse
@@ -47,6 +51,8 @@ from filters.imm import IMM  # noqa: E402
 from models.hybrids import ModelWeightGRU, NeuralKF, model_weight_loss, sequence_loss  # noqa: E402
 from radar.model import observe  # noqa: E402
 from run_stage4 import load_data, summarize_method  # noqa: E402
+from run_stage9 import augmented  # noqa: E402
+from run_stage11 import reference_ade  # noqa: E402
 from training import dataset  # noqa: E402
 from training.experiment import run_experiment  # noqa: E402
 from training.trainer import overfit_one_batch, pick_device, predict, train  # noqa: E402
@@ -90,12 +96,17 @@ def kf_forecast(model, rt, imm_forecast: np.ndarray, device) -> np.ndarray:
 
 
 def main() -> int:
+    global OUT_DIR, ART
     parser = argparse.ArgumentParser(description="Этап 6в: схемы гибридизации")
     parser.add_argument("--smoke", action="store_true")
+    parser.add_argument("--aug", action="store_true", help="обучение с расширением реальных полётов (этап 19)")
     args = parser.parse_args()
     tag = "_smoke" if args.smoke else ""
-    log = setup_logging(f"{STAGE}{tag}")
-    summary = StageSummary("Этап 6в: схемы гибридизации" + (" (СМОУК: не результат)" if args.smoke else ""))
+    stage = STAGE + ("_aug" if args.aug else "")
+    OUT_DIR, ART = config.RESULTS_DIR / stage, config.ARTIFACTS_DIR / stage
+    log = setup_logging(f"{stage}{tag}")
+    summary = StageSummary("Этап 6в: схемы гибридизации" + (", обучение с расширением (этап 19)" if args.aug else "")
+                           + (" (СМОУК: не результат)" if args.smoke else ""))
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     device = pick_device()
     log.info("Устройство: %s%s", device, f" ({torch.cuda.get_device_name(0)})" if device.type == "cuda" else "")
@@ -125,6 +136,9 @@ def main() -> int:
     tracks_tr = sets["train"] + sets["synth"]
     with search.config_override(imm):
         ws_tr = dataset.load_or_build(f"train{tag}_w{window}", tracks_tr, cache4, window=window)
+        if args.aug:
+            copies, ws_aug = augmented(sets["train"], window, tag)
+            tracks_tr, ws_tr = tracks_tr + copies, dataset.concat([ws_tr, *ws_aug])
         built = {name: dataset.build(sets[name], window=window) for name in EVAL_SETS}
         imm_m = IMM()
         log.info("Прогон IMM с прогнозами моделей: train %d трасс", len(tracks_tr))
@@ -223,9 +237,12 @@ def main() -> int:
             evaluate(NAMES["A"], {name: hybrid_fcs(name, preds[name]) for name in EVAL_SETS}, s_i)
             costs.setdefault(NAMES["A"], []).append((res["history"]["n_params"], res["history"]["train_seconds"]))
             if s_i == 0:
-                ga, got = best_all[HYB]["ade_val"], reports["val"][NAMES["A"]][0]["ade"]
-                summary.check("A повторяет этап 4", abs(got / ga - 1) <= 0.05,
-                              f"ADE val на этапе 4 {ga:.2f} м, здесь (seed {seed}) {got:.2f} м")
+                ref_stage = "stage9" if args.aug else "stage4"
+                ga = reference_ade(ref_stage, "+ все расширения", tag, best_all)
+                got = reports["val"][NAMES["A"]][0]["ade"]
+                summary.check(f"A повторяет этап {ref_stage[5:]}", ga is not None and abs(got / ga - 1) <= 0.05,
+                              f"ADE val на этапе {ref_stage[5:]} {ga if ga is None else round(ga, 2)} м, "
+                              f"здесь (seed {seed}) {got:.2f} м")
 
             # Б1
             key = f"{NAMES['B1']}, seed {seed}"

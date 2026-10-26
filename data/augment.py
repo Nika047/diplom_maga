@@ -32,9 +32,11 @@ from data.generator import Limits
 from data.track import Track
 
 
-def _copy(track: Track, suffix: str, pos: np.ndarray) -> Track:
+def _copy(track: Track, suffix: str, pos: np.ndarray, vel_scale: tuple = (1.0, 1.0, 1.0)) -> Track:
+    """vel_scale - множители скорости по телеметрии (vel_log) по осям, как у координат."""
+    vel = None if track.vel_log is None else track.vel_log * np.asarray(vel_scale)
     new = replace(track, flight_id=f"{track.flight_id}~{suffix}", pos=pos, lat=None, lon=None,
-                  speed=None, omega=None, phase=None, turn_onsets=[])
+                  speed=None, omega=None, phase=None, turn_onsets=[], vel_log=vel)
     return phases.annotate(new)
 
 
@@ -45,13 +47,13 @@ def radar_copy(track: Track, j: int) -> Track:
 def mirror(track: Track) -> Track:
     pos = track.pos.copy()
     pos[:, 0] = -pos[:, 0]
-    return _copy(track, "mirror", pos)
+    return _copy(track, "mirror", pos, (-1.0, 1.0, 1.0))
 
 
 def speed_scale(track: Track, f: float) -> Track:
     pos = track.pos.copy()
     pos[:, :2] *= f
-    return _copy(track, f"speed{f:g}", pos)
+    return _copy(track, f"speed{f:g}", pos, (f, f, 1.0))
 
 
 def speed_scale_allowed(track: Track, f: float, limits: Limits) -> bool:
