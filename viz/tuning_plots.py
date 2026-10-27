@@ -79,3 +79,15 @@ def plot_series(x: list, series: dict, path: Path, title: str, xlabel: str, ylab
     ax.legend(fontsize=8)
     ax.set_title(title, fontsize=10)
     _save(fig, path)
+
+
+def plot_tradeoff(points: dict, path: Path, title: str, xlabel: str = "ADE, м", ylabel: str = "ADE на входе в маневр, м") -> None:
+    """points: {метод: (ADE, ошибка на входе в маневр)} - размен средней ошибки и ошибки на входе в маневр."""
+    fig, ax = plt.subplots(figsize=(8, 5.5))
+    for name, (x, y) in points.items():
+        ax.plot(x, y, "o", ms=6, color=method_color(name))
+        ax.annotate(name, (x, y), fontsize=7, xytext=(3, 3), textcoords="offset points")
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.set_title(title, fontsize=10)
+    _save(fig, path)

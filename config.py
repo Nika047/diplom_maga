@@ -384,6 +384,9 @@ BOOTSTRAP_N = 2000
 BOOTSTRAP_LEVEL = 0.95
 # Подбор для гипотез и сочетаний (этапы 6-7): число попыток NSGA-II на гипотезу, первая попытка - параметры основы
 HYP_TUNE_TRIALS = 12
+# Этап 8: ансамбль - жадный отбор по val, до ENSEMBLE_MAX участников, размер - наименьший в пределах ENSEMBLE_TOL от лучшего
+ENSEMBLE_MAX = 6
+ENSEMBLE_TOL = 0.01
 # Замер времени отклика (eval/latency.py): повторы и прогрев, берётся медиана
 LATENCY_WARMUP = 5
 LATENCY_REPEATS = 30

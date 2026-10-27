@@ -5,6 +5,9 @@
 Метод = строка "<этап>/<подпись>"; на каждый seed своя запись (сети). Необучаемые методы - seed 0.
 """
 
+import pickle
+import re
+
 import numpy as np
 
 from pipeline.paths import RunPaths
@@ -16,11 +19,31 @@ class Registry:
         self.name = f"registry_{case}"
         self.data = paths.load_state(self.name, {})
 
-    def record(self, method: str, seed: int, reports: dict, extra: dict = None) -> None:
-        """reports: {набор: отчёт (pipeline/evaluation.report) с ключом "flights"}; extra - прочие числа метода."""
+    def record(self, method: str, seed: int, reports: dict, extra: dict = None, fcs: dict = None) -> None:
+        """
+        reports: {набор: отчёт (pipeline/evaluation.report) с ключом "flights"}; extra - прочие числа метода;
+        fcs - {набор: прогнозы по трассам} - сохраняются на диск для ансамблей этапа 8.
+        """
         entry = self.data.setdefault(method, {})
         entry[str(seed)] = {"reports": reports, "extra": extra or {}}
         self.paths.save_state(self.name, self.data)
+        if fcs is not None:
+            self.save_forecasts(method, seed, fcs)
+
+    def _fc_path(self, method: str, seed: int):
+        slug = re.sub(r"[^\w.-]+", "_", method)
+        return self.paths.cache("forecasts", self.case) / f"{slug}_s{seed}.pkl"
+
+    def save_forecasts(self, method: str, seed: int, fcs: dict) -> None:
+        with open(self._fc_path(method, seed), "wb") as fh:
+            pickle.dump({n: [f.astype(np.float32) for f in v] for n, v in fcs.items()}, fh)
+
+    def forecasts(self, method: str, seed: int) -> dict:
+        with open(self._fc_path(method, seed), "rb") as fh:
+            return pickle.load(fh)
+
+    def has_forecasts(self, method: str, seed: int) -> bool:
+        return self._fc_path(method, seed).exists()
 
     def set_report(self, method: str, seed: int, name: str, report: dict, extra: dict = None) -> None:
         """Дописывает отчёт метода по одному набору (запись на диск - flush)."""

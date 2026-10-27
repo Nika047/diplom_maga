@@ -80,11 +80,12 @@ def _rot(c: torch.Tensor, s: torch.Tensor) -> torch.Tensor:
 
 class NeuralKF(nn.Module):
     def __init__(self, mode: str, sigma0: float, hidden: int = 64, horizon: int = config.HORIZON_SCANS,
-                 period: float = config.SCAN_PERIOD):
+                 period: float = config.SCAN_PERIOD, doppler: bool = False, sigma_vr: float = 0.5):
         super().__init__()
         if mode not in ("gain", "noise"):
             raise ValueError(mode)
         self.mode, self.sigma0, self.horizon, self.period = mode, sigma0, horizon, period
+        self.doppler, self.sigma_vr = doppler, sigma_vr
         self.cell = nn.GRUCell(N_SEQ_FEATURES, hidden)
         self.head = nn.Linear(hidden, 8 if mode == "gain" else 1)
         nn.init.zeros_(self.head.weight)
@@ -103,7 +104,12 @@ class NeuralKF(nn.Module):
         return x[:, None, :2] + self.steps[None, :, None] * x[:, None, 2:]          # (B, H, 2)
 
     def forward(self, seq: torch.Tensor) -> torch.Tensor:
-        """seq (B, L, 7) = [z (2), R (4), обнаружение]; первые две отметки обнаружены. Выход (B, L, H, 2)."""
+        """
+        seq (B, L, 7) = [z (2), R (4), обнаружение]; первые две отметки обнаружены. Выход (B, L, H, 2).
+        С доплером (версия 2) seq (B, L, 11): ещё [vr, cos(угла места) * ux, cos(...) * uy, годность] -
+        после обновления по положению скалярное обновление по радиальной скорости с H = [0, 0, hx, hy]
+        (проекция горизонтальной скорости на луч визирования; СКО sigma_vr).
+        """
         b, length, _ = seq.shape
         z, r, det = seq[..., :2], seq[..., 2:6].reshape(b, length, 2, 2), seq[..., 6]
         t = self.period
@@ -147,6 +153,14 @@ class NeuralKF(nn.Module):
             x = xp + (gain @ nu[..., None])[..., 0]
             ikh = eye - torch.cat([gain, torch.zeros(b, 4, 2, dtype=dtype, device=seq.device)], dim=2)  # I - K H
             p = ikh @ pp @ ikh.transpose(1, 2) + gain @ r[:, k] @ gain.transpose(1, 2)
+            if self.doppler:
+                hv = torch.cat([torch.zeros(b, 2, dtype=dtype, device=seq.device), seq[:, k, 8:10]], dim=1)   # (B, 4)
+                ok = seq[:, k, 10] * det[:, k]
+                s_v = (hv * (p @ hv[..., None])[..., 0]).sum(dim=1) + self.sigma_vr ** 2          # (B,)
+                kv = (p @ hv[..., None])[..., 0] / s_v[:, None] * ok[:, None]                      # (B, 4)
+                x = x + kv * (seq[:, k, 7] - (hv * x).sum(dim=1))[:, None]
+                ikv = eye - kv[..., None] * hv[:, None, :]
+                p = ikv @ p @ ikv.transpose(1, 2) + (kv[..., None] * kv[:, None, :]) * self.sigma_vr ** 2
             out.append(self._forecast(x))
             z_prev = torch.where(det[:, k, None] > 0, z[:, k], z_prev)
         return torch.stack(out, dim=1)

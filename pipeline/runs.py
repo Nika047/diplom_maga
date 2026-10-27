@@ -50,6 +50,7 @@ def fit_and_eval(ctx: Ctx, cd: CaseData, stage: str, label: str, corrector: str,
             ctx.registry.record(f"{stage}/{label}", seed, reps,
                                 {**costs, "train_seconds": res["history"]["train_seconds"],
                                  "epochs": len(res["history"]["epochs"]), "window": window, "hp": hp,
-                                 "params": params, "net_input": cd.net_input})
+                                 "params": params, "net_input": cd.net_input, "corrector": corrector, "mode": mode},
+                                fcs=fcs)
         out.append({"seed": seed, "history": res["history"], "preds": preds, "fcs": fcs, "reports": reps})
     return out

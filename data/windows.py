@@ -282,19 +282,38 @@ def model_offsets(run, ks: np.ndarray, psi: np.ndarray, p_pow: np.ndarray) -> tu
 
 def sequence_arrays(rt) -> dict:
     """
-    Схемы с сетью внутри фильтра: вся трасса по горизонтали - отметки z (K, 2),
-    ковариации отметок R (K, 2, 2), признак обнаружения (K,), истина (K, 2). Истина
-    нужна только для функции потерь, во вход сети не идёт.
+    Схемы с сетью внутри фильтра: вся трасса по горизонтали - отметки z (K, 2), ковариации отметок R
+    (K, 2, 2), признак обнаружения (K,), истина (K, 2). Истина нужна только для функции потерь, во вход
+    сети не идёт. Версия 2, доплер (у трассы есть радиальная скорость): "dop" (K, 4) = [радиальная
+    скорость (nan -> 0), cos(угла места) * единичный вектор на цель по горизонтали (2), признак годности] -
+    проекция горизонтальной скорости на луч визирования для обновления фильтра по доплеру; вектор
+    считается по отметке (то, что известно в поле), РЛС - по её положению.
     """
-    return {"z": rt.meas[:, :2], "r": rt.meas_cov[:, :2, :2], "det": rt.detected.astype(np.float32),
-            "truth": rt.truth[:, :2]}
+    out = {"z": rt.meas[:, :2], "r": rt.meas_cov[:, :2, :2], "det": rt.detected.astype(np.float32),
+           "truth": rt.truth[:, :2]}
+    if rt.vr is not None:
+        rel = rt.meas - rt.radar_pos
+        rng_h = np.maximum(np.linalg.norm(rel[:, :2], axis=1), 1.0)
+        c = rng_h / np.maximum(np.linalg.norm(rel, axis=1), 1.0)
+        valid = rt.detected & np.isfinite(rt.vr)
+        out["dop"] = np.column_stack([np.nan_to_num(rt.vr), c * rel[:, 0] / rng_h, c * rel[:, 1] / rng_h,
+                                      valid.astype(float)])
+    return out
+
+
+def sequence_input(s: dict, sl: slice, origin: np.ndarray) -> np.ndarray:
+    """Вход NeuralKF на куске sl: [z - origin (2), R (4), обнаружение] и, если есть, 4 столбца доплера."""
+    cols = [s["z"][sl] - origin, s["r"][sl].reshape(-1, 4), s["det"][sl, None]]
+    if "dop" in s:
+        cols.append(s["dop"][sl])
+    return np.concatenate(cols, axis=1).astype(np.float32)
 
 
 def sequence_chunks(seqs: list, length: int, horizon: int = config.HORIZON_SCANS) -> tuple:
     """
     Куски трасс для обучения: длина length + horizon (на последних horizon обзорах
     только истина для прогноза), шаг length. Координаты - от первой отметки куска.
-    Возвращает x (N, L + H, 7) = [z (2), R (4), обнаружение] и y (N, L + H, 2) - истина.
+    Возвращает x (N, L + H, 7 или 11 с доплером) и y (N, L + H, 2) - истина.
     """
     xs, ys = [], []
     for s in seqs:
@@ -302,8 +321,9 @@ def sequence_chunks(seqs: list, length: int, horizon: int = config.HORIZON_SCANS
         for start in range(0, k_total - length - horizon + 1, length):
             sl = slice(start, start + length + horizon)
             origin = s["z"][start]
-            xs.append(np.concatenate([s["z"][sl] - origin, s["r"][sl].reshape(-1, 4), s["det"][sl, None]], axis=1))
+            xs.append(sequence_input(s, sl, origin))
             ys.append(s["truth"][sl] - origin)
     if not xs:
-        return np.zeros((0, length + horizon, 7), np.float32), np.zeros((0, length + horizon, 2), np.float32)
+        width = 11 if seqs and "dop" in seqs[0] else 7
+        return np.zeros((0, length + horizon, width), np.float32), np.zeros((0, length + horizon, 2), np.float32)
     return np.stack(xs).astype(np.float32), np.stack(ys).astype(np.float32)
