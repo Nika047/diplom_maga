@@ -61,3 +61,21 @@ def plot_bars_ci(rows: list, path: Path, title: str, ylabel: str = "ADE, м") ->
     ax.set_ylabel(ylabel)
     ax.set_title(title, fontsize=10)
     _save(fig, path)
+
+
+def plot_series(x: list, series: dict, path: Path, title: str, xlabel: str, ylabel: str = "ADE test, м",
+                logx: bool = False) -> None:
+    """series: {подпись: [(среднее, СКО) для каждого x]} - кривые с полосой разброса по seed."""
+    fig, ax = plt.subplots(figsize=(7.5, 4.6))
+    for name, vals in series.items():
+        m = np.array([v[0] for v in vals])
+        sd = np.array([v[1] for v in vals])
+        ax.plot(x, m, "-o", ms=4, color=method_color(name), label=name)
+        ax.fill_between(x, m - sd, m + sd, color=method_color(name), alpha=0.18)
+    if logx:
+        ax.set_xscale("log")
+    ax.set_xlabel(xlabel)
+    ax.set_ylabel(ylabel)
+    ax.legend(fontsize=8)
+    ax.set_title(title, fontsize=10)
+    _save(fig, path)

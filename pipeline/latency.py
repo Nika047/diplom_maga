@@ -11,7 +11,7 @@ import torch
 
 import config
 from common.cases import config_override
-from eval.latency import median_ms
+from eval.latency import net_ms
 from filters.imm import IMM
 from pipeline.casedata import CaseData
 
@@ -24,18 +24,6 @@ def imm_ms_per_scan(cd: CaseData, name: str = "val") -> float:
         t0 = time.perf_counter()
         imm.run(rt)
         return (time.perf_counter() - t0) / len(rt.t) * 1e3
-
-
-def net_ms(model: torch.nn.Module, n_features: int, window: int, device: torch.device) -> float:
-    """Прямой проход сети по одному окну, мс."""
-    model = model.to(device).eval()
-    x = torch.zeros(1, window, n_features, device=device)
-
-    def fn():
-        with torch.no_grad():
-            model(x)
-
-    return median_ms(fn, device)
 
 
 def response_times(imm_ms: float, model: torch.nn.Module = None, n_features: int = 0,

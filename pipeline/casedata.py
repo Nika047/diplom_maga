@@ -23,17 +23,19 @@ from training import dataset
 
 class CaseData:
     def __init__(self, paths: RunPaths, sets: dict, case: str, imm: dict = None, sigma_vr: float = None,
-                 net_input: bool = True, window: int = config.WINDOW_SCANS):
+                 net_input: bool = True, window: int = config.WINDOW_SCANS, ks_window: int = None):
         if case not in CASES:
             raise ValueError(case)
         self.paths, self.sets, self.case = paths, sets, case
         self.imm, self.sigma_vr, self.net_input, self.window = imm or {}, sigma_vr, net_input, window
+        self.ks_window = ks_window or window     # окно, по которому определены обзоры оценки (этап 3: общие для окон)
         self._built = {}
         self._ks = {}
 
     def variant(self, **kw) -> "CaseData":
         """Тот же случай с другими параметрами (окно, доплер во входе сети, параметры IMM)."""
-        args = dict(imm=self.imm, sigma_vr=self.sigma_vr, net_input=self.net_input, window=self.window)
+        args = dict(imm=self.imm, sigma_vr=self.sigma_vr, net_input=self.net_input, window=self.window,
+                    ks_window=self.ks_window)
         args.update(kw)
         return CaseData(self.paths, self.sets, self.case, **args)
 
@@ -68,12 +70,13 @@ class CaseData:
     def ks(self, name: str) -> list:
         """Обзоры оценки набора по трассам - общие для всех случаев (по случаю без доплера)."""
         if name not in self._ks:
-            path = self.paths.cache("state") / f"ks_{name}_w{self.window}.pkl"
+            path = self.paths.cache("state") / f"ks_{name}_w{self.ks_window}.pkl"
             if path.exists():
                 with open(path, "rb") as fh:
                     self._ks[name] = pickle.load(fh)
             else:
-                ref = self if self.case == "nodop" else CaseData(self.paths, self.sets, "nodop", window=self.window)
+                ref = self if (self.case == "nodop" and self.ks_window == self.window) else CaseData(
+                    self.paths, self.sets, "nodop", window=self.ks_window)
                 ws, rts, _ = ref.eval(name)
                 self._ks[name] = [np.array(sorted(ws.k[ws.track == i]), dtype=int) for i in range(len(rts))]
                 with open(path, "wb") as fh:

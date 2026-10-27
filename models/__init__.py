@@ -13,7 +13,7 @@ import config
 from models.gru import GRUCorrector
 from models.lstm import LSTMCorrector
 from models.mamba import MambaCorrector
-from models.stack import BLOCK_TYPES, StackCorrector  # noqa: F401 - этап 4б
+from models.stack import BLOCK_TYPES, ColumnStackCorrector, StackCorrector  # noqa: F401 - этап 4
 from models.transformer import TransformerCorrector
 
 CORRECTORS = {"GRU": GRUCorrector, "LSTM": LSTMCorrector, "Transformer": TransformerCorrector,
@@ -21,7 +21,7 @@ CORRECTORS = {"GRU": GRUCorrector, "LSTM": LSTMCorrector, "Transformer": Transfo
 
 
 def build_corrector(name: str, n_features: int, horizon: int, window: int = config.WINDOW_SCANS,
-                    hidden: int = None, layers: int = None, dropout: float = None):
+                    hidden: int = None, layers: int = None, dropout: float = None, **extra):
     """
     window нужен только Transformer (размер позиционного кодирования). hidden, layers,
     dropout - гиперпараметры (этап 4); None - значения из config. hidden - ширина
@@ -34,6 +34,10 @@ def build_corrector(name: str, n_features: int, horizon: int, window: int = conf
         kwargs["layers"] = layers
     if dropout is not None:
         kwargs["dropout"] = dropout
+    if name == "Stack":      # стопка блоков с отбором признаков (этап 4): extra = blocks, columns
+        return ColumnStackCorrector(n_features, horizon, extra["blocks"], extra["columns"],
+                                    hidden or config.CORRECTOR_HIDDEN,
+                                    config.CORRECTOR_DROPOUT if dropout is None else dropout, window)
     if name == "Transformer":
         kwargs["window"] = window
     return CORRECTORS[name](n_features, horizon, **kwargs)

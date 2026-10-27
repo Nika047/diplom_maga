@@ -8,7 +8,7 @@
     хотя бы одна группа должна остаться, иначе попытка отбрасывается.
 Цели (обе минимизируются, NSGA-II строит фронт Парето):
   1) ADE гибрида на val, м;
-  2) время прогноза на один пример, мкс (медиана ARCH_LATENCY_REPEATS прогонов батча).
+  2) время прямого прохода сети по одному окну, мс (батч 1, eval/latency.net_ms; версия 2).
 
 Время - замер, а не подсчёт операций, поэтому на другом устройстве другое; на одном
 компьютере между попытками сравнимо (небольшой шум замера).
@@ -26,6 +26,7 @@ import torch
 import config
 from common.rng import make_rng
 from data.windows import feature_groups
+from eval.latency import net_ms
 from models import BLOCK_TYPES, StackCorrector
 from training import dataset
 from training.trainer import predict, train
@@ -34,15 +35,15 @@ DEFAULT_ARCH = {"n_blocks": 2, "block_0": "GRU", "block_1": "GRU", "hidden": con
                 "dropout": config.CORRECTOR_DROPOUT, "batch": 512, "lr": 1e-3, "weight_decay": 1e-4}
 
 
-def default_params(n_models: int) -> dict:
+def default_params(n_models: int, doppler: bool = False) -> dict:
     params = dict(DEFAULT_ARCH)
-    params.update({f"use_{i}": True for i in range(len(feature_groups(n_models)))})
+    params.update({f"use_{i}": True for i in range(len(feature_groups(n_models, doppler)))})
     return params
 
 
-def decode(params: dict, n_models: int) -> dict:
-    """Параметры попытки -> {blocks, hidden, dropout, columns, groups, train}."""
-    groups = feature_groups(n_models)
+def decode(params: dict, n_models: int, doppler: bool = False) -> dict:
+    """Параметры попытки -> {blocks, hidden, dropout, columns, groups, train}. doppler - в окнах есть группа «доплер»."""
+    groups = feature_groups(n_models, doppler)
     names = list(groups)
     used = [names[i] for i in range(len(names)) if params.get(f"use_{i}", True)]
     columns = [c for name in used for c in groups[name]]
@@ -52,33 +53,15 @@ def decode(params: dict, n_models: int) -> dict:
                                       "weight_decay": params["weight_decay"]}}
 
 
-def measure_latency(model, x: np.ndarray, device) -> float:
-    """Время прогноза на пример, мкс: медиана по ARCH_LATENCY_REPEATS прогонам одного батча."""
-    xb = torch.from_numpy(x[:config.ARCH_LATENCY_BATCH]).to(device)
-    model.eval()
-    times = []
-    with torch.no_grad():
-        model(xb)  # прогрев
-        for _ in range(config.ARCH_LATENCY_REPEATS):
-            if device.type == "cuda":
-                torch.cuda.synchronize()
-            t0 = time.perf_counter()
-            model(xb)
-            if device.type == "cuda":
-                torch.cuda.synchronize()
-            times.append(time.perf_counter() - t0)
-    return float(np.median(times)) / len(xb) * 1e6
-
-
 class ArchObjective:
     def __init__(self, ws_tr, ws_val, device, n_models: int, window: int, seed: int = config.RANDOM_SEED,
-                 epochs: int = config.TUNE_EPOCHS, patience: int = config.TUNE_PATIENCE):
+                 epochs: int = config.TUNE_EPOCHS, patience: int = config.TUNE_PATIENCE, doppler: bool = False):
         self.norm = dataset.Normalizer.fit(ws_tr)
         self.x_tr, self.y_tr = self.norm.x(ws_tr.x), self.norm.y(ws_tr.y)
         self.x_val, self.y_val = self.norm.x(ws_val.x), self.norm.y(ws_val.y)
         self.y_val_m = ws_val.y
         self.device, self.n_models, self.window = device, n_models, window
-        self.seed, self.epochs, self.patience = seed, epochs, patience
+        self.seed, self.epochs, self.patience, self.doppler = seed, epochs, patience, doppler
 
     def __call__(self, trial: optuna.Trial):
         n_blocks = trial.suggest_int("n_blocks", 1, config.ARCH_MAX_BLOCKS)
@@ -89,9 +72,9 @@ class ArchObjective:
         trial.suggest_categorical("batch", list(config.TUNE_BATCH))
         trial.suggest_float("lr", *config.TUNE_LR, log=True)
         trial.suggest_float("weight_decay", *config.TUNE_WEIGHT_DECAY, log=True)
-        for i in range(len(feature_groups(self.n_models))):
+        for i in range(len(feature_groups(self.n_models, self.doppler))):
             trial.suggest_categorical(f"use_{i}", [True, False])
-        arch = decode(trial.params, self.n_models)
+        arch = decode(trial.params, self.n_models, self.doppler)
         if not arch["columns"]:
             raise optuna.TrialPruned("не выбрано ни одной группы признаков")
         cols = arch["columns"]
@@ -105,21 +88,21 @@ class ArchObjective:
                            self.device, rng, quiet=True)
         pred = self.norm.y_inv(predict(model, self.x_val[..., cols], self.device))
         ade = float(np.linalg.norm(pred - self.y_val_m, axis=-1).mean())
-        latency = measure_latency(model, self.x_val[..., cols], self.device)
+        latency = net_ms(model, len(cols), self.window, self.device)
         trial.set_user_attr("epochs", len(history["epochs"]))
         trial.set_user_attr("seconds", time.time() - t0)
         trial.set_user_attr("n_params", sum(p.numel() for p in model.parameters()))
         trial.set_user_attr("blocks", arch["blocks"])
         trial.set_user_attr("groups", arch["groups"])
-        return ade, latency
+        return ade, latency      # м и мс на обзор (батч 1)
 
 
-def feature_importance(trials: list, n_models: int, top_share: float = 0.2) -> list:
+def feature_importance(trials: list, n_models: int, top_share: float = 0.2, doppler: bool = False) -> list:
     """
     Важность групп признаков по попыткам поиска: средняя ADE попыток с группой и без
     неё и доля лучших попыток (top_share по ADE), где группа выбрана.
     """
-    names = list(feature_groups(n_models))
+    names = list(feature_groups(n_models, doppler))
     ade = np.array([t.values[0] for t in trials])
     top = ade <= np.quantile(ade, top_share) if len(ade) else np.zeros(0, bool)
     rows = []

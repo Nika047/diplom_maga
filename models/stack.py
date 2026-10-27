@@ -69,3 +69,15 @@ class StackCorrector(nn.Module):
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.head(self.sequence(x)[:, -1]).view(-1, self.horizon, 2)
+
+
+class ColumnStackCorrector(StackCorrector):
+    """Стопка поверх выбранных столбцов признаков окна (отбор групп признаков, этап 4): вход - полное окно."""
+
+    def __init__(self, n_features: int, horizon: int, blocks: list, columns: list, d_model: int = config.CORRECTOR_HIDDEN,
+                 dropout: float = config.CORRECTOR_DROPOUT, window: int = config.WINDOW_SCANS):
+        super().__init__(len(columns), horizon, blocks, d_model, dropout, window)
+        self.register_buffer("columns", torch.tensor(list(columns), dtype=torch.long))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return super().forward(x[..., self.columns])

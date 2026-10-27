@@ -98,3 +98,61 @@ def bootstrap_selftest(summary) -> None:
     summary.check("Бутстреп по полётам: известный ответ", ok,
                   f"выигрыш 2 м во всех полётах: разность {res['diff']:.3f}, интервал [{res['lo']:.3f}, {res['hi']:.3f}]; "
                   f"шум: интервал [{res0['lo']:.2f}, {res0['hi']:.2f}] накрывает 0")
+
+
+def window_selftest(summary, tracks: list, cd) -> None:
+    """
+    Окна и корректор (случай cd): поворот в систему курса, причинность окон (признаки по началу трассы =
+    по полной, в том числе с доплером), нулевая поправка = IMM, смоук модели (формы, нулевой выход, градиенты).
+    """
+    import dataclasses
+
+    import torch
+
+    from common.cases import config_override
+    from data.windows import apply_correction, build_windows, n_features, to_global, to_local
+    from filters.imm import IMM
+    from models import build_corrector
+    from radar.model import observe
+
+    v = np.array([[1.0, 0.0]])
+    loc = to_local(v, np.array([np.pi / 2]))
+    back = to_global(loc, np.array([np.pi / 2]))
+    summary.check("Система курса: известный ответ", np.allclose(loc, [[0.0, 1.0]]) and np.allclose(back, v),
+                  f"восток при курсе 90 град -> {loc.round(6).tolist()}, обратно {back.round(6).tolist()}")
+    with config_override(cd.override()):
+        tr = max(tracks, key=len)
+        rt = observe(tr)
+        imm = IMM()
+        run = imm.run(rt)
+        full = build_windows(rt, run, with_target=False)
+        k0 = int(full["k"][len(full["k"]) // 2])
+        cut = dataclasses.replace(rt, t=rt.t[:k0 + 1], truth=rt.truth[:k0 + 1], polar=rt.polar[:k0 + 1],
+                                  meas=rt.meas[:k0 + 1], meas_cov=rt.meas_cov[:k0 + 1],
+                                  detected=rt.detected[:k0 + 1], phase=rt.phase[:k0 + 1],
+                                  onsets=[k for k in rt.onsets if k <= k0],
+                                  vr=None if rt.vr is None else rt.vr[:k0 + 1])
+        part = build_windows(cut, imm.run(cut), with_target=False)
+        common = np.intersect1d(part["k"], full["k"])
+        same = np.array_equal(part["x"][np.isin(part["k"], common)], full["x"][np.isin(full["k"], common)])
+        summary.check("Окна причинные: признаки по началу трассы = по полной", same and len(common) > 0,
+                      f"случай {cd.case}, трасса {tr.flight_id}, обрезка на обзоре {k0}, общих окон {len(common)}, "
+                      f"признаков {full['x'].shape[-1]}")
+        w = build_windows(rt, run)
+        hyb = apply_correction(run.forecast, w["k"], w["psi"], np.zeros_like(w["y"]))
+        a = metrics.summarize(metrics.forecast_pairs(rt, run.forecast))
+        b = metrics.summarize(metrics.forecast_pairs(rt, hyb))
+        summary.check("Нулевая поправка = IMM", np.array_equal(hyb, run.forecast, equal_nan=True) and a == b,
+                      f"ADE IMM {a['ade']:.3f} м, гибрида с нулевой поправкой {b['ade']:.3f} м")
+        nf = full["x"].shape[-1]
+    torch.manual_seed(config.RANDOM_SEED)
+    model = build_corrector("GRU", nf, config.HORIZON_SCANS)
+    x = torch.randn(8, config.WINDOW_SCANS, nf)
+    out = model(x)
+    ((out - torch.ones_like(out)) ** 2).mean().backward()
+    grads = sum(float(p.grad.abs().sum()) for p in model.parameters() if p.grad is not None)
+    summary.check("Модель: формы, нулевой выход до обучения, градиенты",
+                  tuple(out.shape) == (8, config.HORIZON_SCANS, 2) and float(out.abs().max()) == 0.0 and grads > 0,
+                  f"выход {tuple(out.shape)}, max|выход| {float(out.abs().max())}, сумма |градиентов| {grads:.3f}, "
+                  f"параметров {sum(p.numel() for p in model.parameters())}, признаков {nf} "
+                  f"(n_features без доплера {n_features(len(config.IMM_MODELS))})")
