@@ -1,35 +1,34 @@
 """
-Программа прогнозирования положения воздушного объекта (этап 7).
+Программа прогнозирования положения воздушного объекта (этап 11 версии 2).
 
-Прогноз - гибрид IMM + нейросетевой корректор (схема A, лучшая по этапам 4 и 6в): IMM с
-параметрами генетического подбора даёт прогноз на 1..H обзоров (до 10 с), сеть - поправку
-к нему. Для сравнения рядом - прогноз IMM без поправки.
+Прогноз - итоговая модель случая доплера: IMM с параметрами генетического подбора даёт прогноз на 1..H обзоров
+(до 10 с), сеть - поправку к нему. Три случая (--case): nodop - РЛС без доплера, dop_traj и dop_tele - с доплером
+(для доплера по телеметрии источник скорости при моделировании отметок из лога - скорость GPS-приёмника).
+Для сравнения рядом - прогноз IMM без поправки. --ensemble - среднее поправок всех seed итоговой модели.
 
 Вход - один из двух:
   --log файл.csv   - лог полёта EdgeTX/OpenTX: очистка как на этапе 0, отметки РЛС по
-                     модели этапа 1 (--pd - вероятность обнаружения), прогноз и ошибки
-                     относительно GPS. --save-radar файл.csv - сохранить отметки в
+                     модели этапа 1 (--pd - вероятность обнаружения; в случаях с доплером ещё радиальная
+                     скорость), прогноз и ошибки относительно GPS. --save-radar файл.csv - сохранить отметки в
                      формате --radar;
   --radar файл.csv - отметки РЛС: столбцы t (с), range_m, az_deg (от севера по часовой),
-                     el_deg; пустая дальность - пропуск. Обзоры - через SCAN_PERIOD.
-                     Положение РЛС - --radar-lat, --radar-lon, --radar-alt. Истины нет,
-                     только прогноз.
+                     el_deg и, для случаев с доплером, vr_mps (радиальная скорость, м/с); пустая дальность -
+                     пропуск. Обзоры - через SCAN_PERIOD. Положение РЛС - --radar-lat, --radar-lon,
+                     --radar-alt. Истины нет, только прогноз.
 
-Выход (--out, по умолчанию results/predict/<имя файла>):
+Выход (--out, по умолчанию results/<прогон>/predict/<имя файла>):
   forecast.csv - прогнозы гибрида и IMM для каждого обзора и горизонта (ENU и широта,
                  долгота);
   report.html  - карта с ползунком по обзорам: отметки, истина, прогнозы гибрида и IMM;
                  таблица ошибок, график ошибки во времени;
   summary.txt  - ошибки (если есть истина), время обработки обзора, проверки.
 
-Модель - результаты этапа 4 (в git не хранятся): --model (artifacts/stage4/IMM_GRU,_seed_42.pt)
-и --imm (cache/stage4/imm_best.json). --smoke - модель смоука этапа 4: проверка программы
-на рабочем ПК, прогноз для диплома не годится.
+Модель - пакет этапа 11: --bundle (по умолчанию artifacts/<прогон>/stage11/<случай>). Пакеты в git не хранятся.
+--smoke - пакет смоука этапа 11: проверка программы на рабочем ПК, прогноз для диплома не годится.
 
 Проверки (в summary.txt): пересчёт ENU -> широта и долгота совпадает с координатами лога;
 прогноз причинный - по началу трассы он тот же, что по всей трассе.
 """
-
 import argparse
 import base64
 import csv
@@ -55,52 +54,16 @@ from data import phases  # noqa: E402
 from data.flight_logs import clean_log, read_log  # noqa: E402
 from data.geo import enu_to_geodetic, geodetic_to_enu  # noqa: E402
 from data.phases import PHASE_CODE  # noqa: E402
-from data.windows import apply_correction, build_windows, n_features  # noqa: E402
 from eval import metrics  # noqa: E402
 from eval.checks import StageSummary  # noqa: E402
-from filters.imm import IMM  # noqa: E402
-from models import build_corrector  # noqa: E402
+from pipeline.bundle import FinalPredictor  # noqa: E402
 from radar.model import RadarTrack, converted_cov, observe, polar_to_enu, to_polar  # noqa: E402
-from training.dataset import Normalizer  # noqa: E402
-from training.trainer import predict  # noqa: E402
-from tuning.search import config_override  # noqa: E402
+from common.cases import CASES, config_override  # noqa: E402
 from viz.plots import PHASE_COLORS, PHASE_RU  # noqa: E402
 
-DEFAULT_MODEL = config.ARTIFACTS_DIR / "stage4" / "IMM_GRU,_seed_42.pt"
-DEFAULT_IMM = config.CACHE_DIR / "stage4" / "imm_best.json"
-SMOKE_MODEL = config.ARTIFACTS_DIR / "stage4" / "IMM_GRU,_seed_42_smoke.pt"
-SMOKE_IMM = config.CACHE_DIR / "stage4_smoke" / "imm_best.json"
 PERIOD_TOL = 0.05        # допустимое отклонение шага времени в файле отметок, доля периода
 GEO_TOL_M = 1.0          # проверка пересчёта координат лога, м
 CAUSAL_TOL_M = 1e-3      # проверка причинности: сеть в float32, итог зависит от состава батча на уровне 1e-6 м
-
-
-class HybridPredictor:
-    """IMM с подобранными параметрами + корректор этапа 4."""
-
-    def __init__(self, model_path: Path, imm_path: Path, device: torch.device):
-        ck = torch.load(model_path, map_location="cpu", weights_only=False)
-        if ck.get("mode") != "hybrid":
-            raise ValueError(f"{model_path}: нужен корректор гибрида, а не модель {ck.get('mode')}")
-        self.imm_params = json.loads(Path(imm_path).read_text(encoding="utf-8"))["params"]
-        self.window, self.device = ck["window"], device
-        self.norm = Normalizer.from_dict(ck["normalizer"])
-        self.model = build_corrector(ck["corrector"], n_features(len(config.IMM_MODELS)), config.HORIZON_SCANS,
-                                     self.window, **ck["model_kwargs"])
-        self.model.load_state_dict(ck["state_dict"])
-        self.model.to(device).eval()
-        self.name = f"IMM+{ck['corrector']}"
-
-    def run(self, rt: RadarTrack) -> dict:
-        """Прогнозы (K, H, 3): imm - IMM, hyb - гибрид (nan, пока окно не набралось)."""
-        with config_override(self.imm_params):
-            run = IMM().run(rt)
-            w = build_windows(rt, run, window=self.window, with_target=False)
-        hyb = np.full_like(run.forecast, np.nan)
-        if len(w["k"]):
-            corr = self.norm.y_inv(predict(self.model, self.norm.x(w["x"]), self.device))
-            hyb[w["k"]] = apply_correction(run.forecast, w["k"], w["psi"], corr)[w["k"]]
-        return {"imm": run.forecast, "hyb": hyb, "ks": w["k"]}
 
 
 def prefix(rt: RadarTrack, n: int) -> RadarTrack:
@@ -114,7 +77,7 @@ def prefix(rt: RadarTrack, n: int) -> RadarTrack:
 # Вход
 # ============================================================================
 
-def from_log(path: Path, pd: float, log) -> list:
+def from_log(path: Path, pd: float, log, sensor: dict = None) -> list:
     """Куски лога -> [(RadarTrack, точка отсчёта ENU (lat, lon, alt), проверка координат, м)]."""
     raw = read_log(path)
     tracks, stats = clean_log(raw)
@@ -124,7 +87,7 @@ def from_log(path: Path, pd: float, log) -> list:
         phases.annotate(tr)
         first = np.flatnonzero((raw.lat == tr.lat[0]) & (raw.lon == tr.lon[0]))
         alt0 = float(raw.alt[first[0]]) if len(first) else 0.0
-        with config_override({"RADAR_PD": pd}):
+        with config_override({"RADAR_PD": pd, **(sensor or {})}):
             rt = observe(tr)
         la, lo, _ = enu_to_geodetic(tr.pos, tr.lat[0], tr.lon[0], alt0)
         geo_err = float(np.max(np.hypot((la - tr.lat) * 111_320.0, (lo - tr.lon) * 111_320.0 * np.cos(
@@ -133,11 +96,12 @@ def from_log(path: Path, pd: float, log) -> list:
     return out
 
 
-def from_radar(path: Path, lat: float, lon: float, alt: float) -> RadarTrack:
-    t, polar = [], []
+def from_radar(path: Path, lat: float, lon: float, alt: float, doppler: bool = False) -> RadarTrack:
+    t, polar, vr = [], [], []
     with open(path, encoding="utf-8", newline="") as fh:
         for row in csv.DictReader(fh):
             t.append(float(row["t"]))
+            vr.append(float(row["vr_mps"]) if doppler and row.get("vr_mps", "").strip() else np.nan)
             if row["range_m"].strip():
                 polar.append([float(row["range_m"]), np.radians(float(row["az_deg"])),
                               np.radians(float(row["el_deg"]))])
@@ -149,8 +113,11 @@ def from_radar(path: Path, lat: float, lon: float, alt: float) -> RadarTrack:
         raise ValueError(f"{path}: обзоры должны идти через {config.SCAN_PERIOD} с (пропуск - пустая дальность)")
     detected = ~np.isnan(polar[:, 0])
     nan3 = np.full((len(t), 3), np.nan)
+    vr = np.where(detected, np.array(vr), np.nan)
+    if doppler and not np.isfinite(vr[detected]).any():
+        raise ValueError(f"{path}: для случая с доплером нужен столбец vr_mps")
     return RadarTrack(path.stem, t, nan3, np.zeros(3), polar, polar_to_enu(polar), converted_cov(polar), detected,
-                      np.full(len(t), PHASE_CODE["straight"], dtype=np.int8), [])
+                      np.full(len(t), PHASE_CODE["straight"], dtype=np.int8), [], vr=vr if doppler else None)
 
 
 def save_radar(rt: RadarTrack, origin: tuple, path: Path) -> tuple:
@@ -168,11 +135,12 @@ def save_radar(rt: RadarTrack, origin: tuple, path: Path) -> tuple:
     polar[det] = to_polar(geodetic_to_enu(glat, glon, galt, *radar))
     with open(path, "w", encoding="utf-8", newline="") as fh:
         wr = csv.writer(fh)
-        wr.writerow(["t", "range_m", "az_deg", "el_deg"])
+        wr.writerow(["t", "range_m", "az_deg", "el_deg"] + (["vr_mps"] if rt.vr is not None else []))
         for k in range(len(rt.t)):
             r, az, el = polar[k]
             wr.writerow([f"{rt.t[k] - rt.t[0]:.3f}"] + ([f"{r:.3f}", f"{np.degrees(az) % 360:.7f}",
-                                                         f"{np.degrees(el):.7f}"] if det[k] else ["", "", ""]))
+                                                         f"{np.degrees(el):.7f}"] if det[k] else ["", "", ""])
+                        + ([f"{rt.vr[k]:.3f}" if det[k] and np.isfinite(rt.vr[k]) else ""] if rt.vr is not None else []))
     return radar
 
 
@@ -404,10 +372,11 @@ def main() -> int:
     parser.add_argument("--radar-alt", type=float, default=0.0, help="высота РЛС (с --radar), м")
     parser.add_argument("--pd", type=float, default=config.RADAR_PD, help="вероятность обнаружения (с --log)")
     parser.add_argument("--save-radar", type=Path, help="с --log: сохранить отметки первого куска в формате --radar")
-    parser.add_argument("--model", type=Path, help="веса корректора (этап 4)")
-    parser.add_argument("--imm", type=Path, help="параметры IMM (этап 4, imm_best.json)")
+    parser.add_argument("--case", choices=CASES, default="dop_traj", help="случай доплера итоговой модели")
+    parser.add_argument("--bundle", type=Path, help="пакет итоговой модели (этап 11)")
+    parser.add_argument("--ensemble", action="store_true", help="среднее поправок всех seed итоговой модели")
     parser.add_argument("--out", type=Path, help="папка результатов")
-    parser.add_argument("--smoke", action="store_true", help="модель смоука этапа 4 (проверка программы)")
+    parser.add_argument("--smoke", action="store_true", help="пакет смоука этапа 11 (проверка программы)")
     args = parser.parse_args()
 
     log = setup_logging("predict" + ("_smoke" if args.smoke else ""))
@@ -415,19 +384,18 @@ def main() -> int:
     out_dir = args.out or config.RESULTS_DIR / "predict" / (src_path.stem + ("_smoke" if args.smoke else ""))
     out_dir.mkdir(parents=True, exist_ok=True)
     summary = StageSummary(f"Прогноз: {src_path.name}" + (" (СМОУК-МОДЕЛЬ: не результат)" if args.smoke else ""))
-    model_path = args.model or (SMOKE_MODEL if args.smoke else DEFAULT_MODEL)
-    imm_path = args.imm or (SMOKE_IMM if args.smoke else DEFAULT_IMM)
-    for p in (model_path, imm_path):
-        if not p.exists():
-            log.error("Нет %s - нужен результат этапа 4 (домашний ПК) или --smoke", p)
-            return 2
+    root = config.ARTIFACTS_DIR / "_smoke" if args.smoke else config.ARTIFACTS_DIR
+    bundle_dir = args.bundle or root / "stage11" / args.case
+    if not (bundle_dir / "config.json").exists():
+        log.error("Нет пакета %s - нужен результат этапа 11 (домашний ПК) или --smoke", bundle_dir)
+        return 2
     device = torch.device("cpu")
-    pred = HybridPredictor(model_path, imm_path, device)
-    log.info("Модель %s (%s), окно %d обзоров; IMM: %s", model_path.name, pred.name, pred.window, imm_path)
+    pred = FinalPredictor(bundle_dir, device, ensemble=args.ensemble)
+    log.info("Пакет %s (%s), окно %d обзоров, случай %s", bundle_dir, pred.name, pred.window, pred.case)
 
     if args.log:
         items = [{"name": f"кусок {i}", "rt": rt, "origin": origin, "geo_err": ge}
-                 for i, (rt, origin, ge) in enumerate(from_log(args.log, args.pd, log))]
+                 for i, (rt, origin, ge) in enumerate(from_log(args.log, args.pd, log, pred.sensor_override))]
         if not items:
             log.error("В логе не осталось кусков после очистки")
             return 1
@@ -443,7 +411,7 @@ def main() -> int:
             log.error("С --radar нужны --radar-lat и --radar-lon")
             return 2
         items = [{"name": args.radar.stem, "rt": from_radar(args.radar, args.radar_lat, args.radar_lon,
-                                                               args.radar_alt),
+                                                               args.radar_alt, pred.case != "nodop"),
                   "origin": (args.radar_lat, args.radar_lon, args.radar_alt)}]
 
     t0, n_scans = time.perf_counter(), 0

@@ -1,16 +1,20 @@
 """
-Все этапы подряд для выбранного варианта данных (решение пользователя 23.10.2026: на варианте
-merged пересчитать все этапы).
+Все этапы версии 2 подряд для одного прогона (вариант данных x объём синтетики).
 
+  .venv\\Scripts\\python.exe run_all.py --data base --synth 1
   .venv\\Scripts\\python.exe run_all.py --data merged --synth 1
+  (если хватит времени)  --data base --synth 4,  --data merged --synth 4
 
-Этапы идут в порядке зависимостей. Этап пропускается, если его сводка уже есть (повторный
-запуск продолжает с первого незавершённого; --force - запустить всё заново). Сводка с FAIL
-считается завершённой: FAIL - это результат, его разбирают по сводке. Если после этапа сводки
-нет (необработанное исключение), запуск останавливается: следующие этапы от него зависят.
-Подбор этапа 4 и 4г сам продолжает прерванные попытки (cache/.../optuna.db).
+Остановка: Ctrl+C (или закрыть окно). Продолжение: та же команда. Этап пропускается, если сводки всех его
+случаев уже есть; прерванный этап продолжается без потери: обученные сети лежат в model_store/<прогон>/,
+прерванное обучение сети продолжается с последней эпохи, попытки подбора - в базе Optuna
+(cache/<прогон>/<этап>/<случай>/optuna.db). --force - заново, --from run_stage4.py - начать с этапа,
+--case dop_tele - только один случай доплера (nodop, dop_traj, dop_tele; по умолчанию все три),
+--smoke - проверка конвейера на подвыборке (результаты в папках _smoke, для диплома не годятся).
 
-Журнал каждого этапа - как обычно в log/<прогон>/, прогон = <base|merged>_x<1|4> (config.RUN_NAME).
+Сводка этапа: results/<прогон>/stageN/<случай>/summary.txt (этап 0 - stage0/summary.txt). Этап без сводки после
+запуска (необработанное исключение) останавливает прогон: следующие зависят от него. Сводка с FAIL
+считается завершённой: FAIL - результат, его разбирают по сводке.
 """
 
 import argparse
@@ -21,67 +25,67 @@ import time
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent
+CASES = ("nodop", "dop_traj", "dop_tele")
 
-# (команда, сводка относительно папки результатов)
+# (скрипт, зависит ли от случая)
 STAGES = [
-    ("run_stage0.py", "stage0/summary.txt"),
-    ("run_stage1.py", "stage1/summary.txt"),
-    ("run_stage2.py", "stage2/summary.txt"),
-    ("run_stage3.py", "stage3/summary.txt"),
-    ("run_stage3_window.py", "stage3_window/summary.txt"),
-    ("run_stage4.py --phase all", "stage4/summary_all.txt"),
-    ("run_stage4_baselines.py", "stage4_baselines/summary.txt"),
-    ("run_stage4b.py --phase all", "stage4b/summary_all.txt"),
-    ("run_stage4c.py", "stage4c/summary.txt"),
-    ("run_stage4d.py --synth 4", "stage4d/summary_x4.txt"),
-    ("run_stage5.py", "stage5/summary.txt"),
-    ("run_stage6a.py", "stage6a/summary.txt"),
-    ("run_stage6b.py", "stage6b/summary.txt"),
-    ("run_stage6c.py", "stage6c/summary.txt"),
-    ("run_stage6d.py", "stage6d/summary.txt"),
-    ("run_stage8.py", "stage8/summary.txt"),
-    ("run_stage9.py", "stage9/summary.txt"),
-    ("run_stage10.py", "stage10/summary.txt"),
-    ("run_stage11.py", "stage11/summary.txt"),
-    ("run_stage12.py", "stage12/summary.txt"),
-    ("run_stage13.py", "stage13/summary.txt"),
-    ("run_stage14.py", "stage14/summary.txt"),
-    ("run_stage15.py", "stage15/summary.txt"),
-    ("run_stage16.py", "stage16/summary.txt"),
-    ("run_stage17.py", "stage17/summary.txt"),
-    ("run_stage18.py", "stage18/summary.txt"),
-    ("run_stage19.py", "stage19/summary.txt"),
-    ("run_stage6c.py --aug", "stage6c_aug/summary.txt"),
-    ("run_stage6d.py --aug", "stage6d_aug/summary.txt"),
+    ("run_stage0.py", False),
+    ("run_stage1.py", True),
+    ("run_stage2.py", True),
+    ("run_stage3.py", True),
+    ("run_stage4.py", True),
+    ("run_stage5.py", True),
+    ("run_stage6.py", True),
+    ("run_stage7.py", True),
+    ("run_stage8.py", True),
+    ("run_stage9.py", True),
+    ("run_stage10.py", True),
+    ("run_stage11.py", True),
 ]
 
 
+def summary_path(results: Path, script: str, per_case: bool, case: str = None) -> Path:
+    stage = script.replace("run_", "").replace(".py", "")
+    return results / stage / (case or "") / "summary.txt" if per_case else results / stage / "summary.txt"
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Все этапы подряд для варианта данных")
+    parser = argparse.ArgumentParser(description="Все этапы версии 2 подряд для прогона")
     parser.add_argument("--data", choices=("base", "merged"), required=True)
     parser.add_argument("--synth", choices=("1", "4"), default="1", help="объём синтетики: x1 или x4 (DIPLOM_SYNTH)")
+    parser.add_argument("--case", choices=("all",) + CASES, default="all")
     parser.add_argument("--force", action="store_true", help="запускать этапы, даже если сводка уже есть")
-    parser.add_argument("--from", dest="start", default="", help="начать с этого скрипта, например run_stage4c.py")
+    parser.add_argument("--from", dest="start", default="", help="начать с этого скрипта, например run_stage4.py")
+    parser.add_argument("--smoke", action="store_true")
     args = parser.parse_args()
-    # Свои строки - в UTF-8, как у этапов: при выводе в файл иначе кодировка системы, и файл
-    # получался в двух кодировках (дома строки [готово] и [стоп] читались кракозябрами)
     sys.stdout.reconfigure(encoding="utf-8")
     env = {**os.environ, "DIPLOM_DATA": args.data, "DIPLOM_SYNTH": args.synth, "PYTHONIOENCODING": "utf-8"}
-    results = PROJECT_DIR / "results" / f"{args.data}_x{args.synth}"
+    run = f"{args.data}_x{args.synth}"
+    results_root = PROJECT_DIR / "results" / run
+    results = results_root / ("_smoke" if args.smoke else "")
+    cases = CASES if args.case == "all" else (args.case,)
     started = not args.start
-    for cmd, rel in STAGES:
-        started = started or cmd.split()[0] == args.start
-        summary = results / rel
-        if not started or (summary.exists() and not args.force):
-            print(f"[пропуск] {cmd}: {'до --from' if not started else 'сводка уже есть'}", flush=True)
-            continue
-        t0 = time.time()
-        print(f"[запуск] {cmd} (DIPLOM_DATA={args.data}, DIPLOM_SYNTH={args.synth})", flush=True)
-        code = subprocess.call([sys.executable, "-u", *cmd.split()], cwd=PROJECT_DIR, env=env)
-        print(f"[готово] {cmd}: код {code}, {(time.time() - t0) / 60:.1f} мин", flush=True)
-        if not summary.exists():
-            print(f"[стоп] {cmd} не записал сводку {summary} - смотреть журнал этапа", flush=True)
-            return 1
+    for script, per_case in STAGES:
+        started = started or script == args.start
+        for case in (cases if per_case else (None,)):
+            summary = summary_path(results_root if script == "run_stage0.py" else results, script, per_case, case)
+            title = f"{script}" + (f" --case {case}" if case else "")
+            if not started or (summary.exists() and not args.force):
+                print(f"[пропуск] {title}: {'до --from' if not started else 'сводка уже есть'}", flush=True)
+                continue
+            cmd = [sys.executable, "-u", script] + (["--case", case] if case else []) + (["--smoke"] if args.smoke and script != "run_stage0.py" else [])
+            t0 = time.time()
+            print(f"[запуск] {title} (прогон {run})", flush=True)
+            try:
+                code = subprocess.call(cmd, cwd=PROJECT_DIR, env=env)
+            except KeyboardInterrupt:
+                print(f"[остановлено] {title}: продолжить - той же командой", flush=True)
+                return 130
+            print(f"[готово] {title}: код {code}, {(time.time() - t0) / 60:.1f} мин", flush=True)
+            if not summary.exists():
+                print(f"[стоп] {title} не записал сводку {summary} - смотреть журнал этапа "
+                      f"(log/{run}/); если GPU нет, этап 2-9 запускаются только дома", flush=True)
+                return 1
     print("[все этапы завершены]", flush=True)
     return 0
 

@@ -214,7 +214,8 @@ def fit_spec(ctx: Ctx, spec, bc: BaseConfig, hp: dict, params: dict, seed: int, 
     for role, (xt, yt, xv, yv, loss) in jobs.items():
         if stage is not None:
             net, _, _ = fit_model(ctx, stage, f"{label}|{role}", seed, builders[role], xt, yt, xv, yv, tp, loss_fn=loss,
-                                  overfit={"ok": lambda f, l: l < f} if first else None, plot=first)
+                                  overfit={"ok": lambda f, l: l < f} if first else None, plot=first,
+                                  payload_extra={"normalizer": norm.as_dict()})
         else:
             rng = make_rng("training", seed)
             torch.manual_seed(seed)

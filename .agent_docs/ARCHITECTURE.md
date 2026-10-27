@@ -1,56 +1,38 @@
 # Архитектура
 
-Состояние на 18.10.2026: этапы 0-2 реализованы и выполнены. Этап 3 написан и
-проверен смоуком на рабочем ПК, полное обучение - на домашнем. Модули этапов 4 и
-дальше помечены «план».
+Состояние на 27.10.2026: версия 2 (`PLAN.md`, раздел 5а) - все этапы 0-11 написаны на общем ядре `pipeline/` и
+проверены смоуком на рабочем ПК; полные прогоны - дома. Скрипты версии 1 - в `archive_v1/`.
 
 ## Поток данных
 
-Пути ниже - для варианта данных `base`. В варианте `merged` (`DIPLOM_DATA=merged`)
-те же каталоги с суффиксом `_merged`, holdout нет, а синтетика делится на train /
-val / test (`PLATFORM.md`, «Варианты данных»).
+Прогон = вариант данных (`DIPLOM_DATA`) x объём синтетики (`DIPLOM_SYNTH`); все пути содержат имя прогона
+(`config.RUN_NAME`). Три случая доплера (`common/cases.py`): `nodop`, `dop_traj`, `dop_tele`.
 
 ```text
-flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, перепривязка времени
+flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, перепривязка времени, скорость GPS-приёмника
                            |
                      data/phases.py: скорость, |w|, участки, начала маневров
                            |
-                     data/splits.py: train / val / test / holdout / sim / excluded (целыми логами)
+                     data/splits.py: train / val / test / holdout (целыми логами); data/generator.py: синтетика;
+                     data/augment.py: расширение реальных train (переразметка РЛС, отражение, растяжение)
                            |
-         data/generator.py: калибровка по train -> синтетика (только train + набор анализа)
+   этап 0: cache/<прогон>/stage0/ (tracks_real, tracks_synth_*, tracks_aug, splits, calibration)
                            |
-         cache/stage0/*.pkl, splits.json, calibration.json
+   pipeline/data.py: выборки (train = реальные + расширение + синтетика), pipeline/casedata.py: CaseData -
+   окна и прогоны IMM под случаем (флаги доплера, параметры IMM, доверие к доплеру), обзоры оценки общие
                            |
-   radar/model.py: observe(Track) -> RadarTrack (отметки, ковариации, участки, начала маневров)
+   этап 1: подбор IMM и KF (NSGA-II) в каждом случае -> состояние imm_<случай>; реестр stage1/*
+   этап 2: корректоры (двухцелевой подбор: ADE val и мс на обзор) -> model_store, реестр stage2/*
+   этап 3: окно, размер сети, объём данных;  этап 4: поиск архитектуры (стопки блоков)
+   этап 5: схемы A, Б1-Б5, A + Б1; выбор основы (pipeline/selection.py) -> состояние base_<случай>
+   этап 6: гипотезы по одной против основы (pipeline/hypotheses.py, models/heads.py), отбор по val (бутстреп)
+   этап 7: сочетания выживших -> итоговая модель случая (состояние final_<случай>)
+   этап 8: жадный ансамбль (Caruana) -> состояние ens_<случай>
+   этап 9: пропуски, строб, шум РЛС и оракул, точность доплера, сгенерированный test, реакция на маневр
+   этап 10: интервалы бутстрепом по полётам, сравнение случаев;  этап 11: пакеты для predict.py
                            |
-   filters/: cv_extrapolate, IMM(("CV",)) = фильтр Калмана, IMM() -> FilterRun
-             (оценки, вероятности моделей, невязки, прогноз на 1..H обзоров)
-                           |
-   eval/metrics.py: пары (k, h) -> MAE, RMSE, ADE, FDE, R2; кривая динамической ошибки
-                           |
-   data/windows.py: окно W обзоров в системе курса IMM -> x (N, W, F); цель - поправка (N, H, 2)
-                           |
-   training/dataset.py: прогон РЛС + IMM + окна, кэш cache/stage2/*.npz, нормализация
-                           |
-   models/ (GRU) + training/trainer.py -> веса artifacts/stage2/*.pt
-                           |
-   гибрид: прогноз IMM + поправка (apply_correction) -> eval/metrics.py
-                           |
-   этап 3: LSTM, GRU, Transformer, Mamba (гибриды) + GRU, Mamba без IMM (окна build_windows_e2e)
-           -> eval/compare.py (одинаковые пары (k, h) для всех методов)
-                           |
-   этап 4: tuning/search.py
-           шаг imm   -> cache/stage4/imm_best.json (параметры IMM)
-           шаг tune  -> cache/stage4/best_params.json (окно, сеть, обучение - для каждой модели)
-           шаг final -> несколько seed, оценка val / test / holdout, results/stage4/
-   этап 4б: tuning/arch_search.py (NSGA-II, 2 цели) -> cache/stage4/arch_best.json,
-           фронт Парето и итог на test -> results/stage4b/
-   дополнение этапа 4: run_stage4_baselines.py - подбор KF и CV -> results/stage4_baselines/
-   этап 5: data/windows.onset_labels (метка начала маневра) + models/onset.py (GRU, две головы)
-           -> обнаружители (сеть, вероятность CT, NIS CV) и прогноз -> results/stage5/
-   этап 6а: RADAR_PD из PD_LEVELS, окна с удержанием отметки (held) -> results/stage6a/
-   этап 6б: ковариация прогноза IMM + конформная калибровка на val -> стробы -> results/stage6b/
-   этап 6в: схемы A, Б1 (веса моделей IMM), Б2/Б3 (NeuralKF на кусках трасс) -> results/stage6c/
+   pipeline/registry.py: метрики и ошибки по полётам каждого метода (cache/<прогон>/state/registry_<случай>.json),
+   прогнозы участников (cache/<прогон>/forecasts/); training/store.py: обученные сети (model_store/<прогон>/)
 ```
 
 ## Модули
@@ -65,18 +47,15 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `data/flight_logs.py` | Чтение CSV, очистка, разрез на куски, ENU, перепривязка времени; скорость GPS-приёмника (`GSpd`, `Hdg`, `VSpd` после столбца `GPS`) идёт через очистку вместе с координатами в `Track.vel_log`; `attach_log_velocity` - подклеить её к трекам кэша этапа 0 (собраны раньше) по `flight_id` с проверкой координат | есть |
 | `data/phases.py` | Кинематика, разметка участков, доли, `turn_omegas` | есть |
 | `data/splits.py` | Разбиение целыми логами, `save_splits` / `load_splits`; `split_synth` (merged: сгенерированные траектории по сценариям в train / val / test); `load_sets` - выборки из кэша этапа 0 для всех этапов (в merged добавляет сгенерированные val и test) | есть |
-| `run_all.py` | Все этапы подряд для варианта `--data base / merged`, пропуск этапов с готовой сводкой, `--force`, `--from` | есть |
 | `data/generator.py` | Кинематический генератор, `calibrate_limits`, сценарии | есть |
 | `eval/checks.py` | `StageSummary`: проверки PASS / FAIL, разделы, `summary.txt` | есть |
 | `viz/plots.py`, `viz/map_html.py` | PNG и HTML-карта (Leaflet) | есть |
-| `run_stage0.py` | Этап 0 | есть |
 | `radar/model.py` | Модель РЛС: положение РЛС на трассу, полярный шум, пропуски, пересчёт в ENU с ковариацией; доплер (этап 12) - `RadarTrack.vr`, `true_radial_velocity` (скорость назад по трём точкам истины), только при `DOPPLER_IN_IMM` / `DOPPLER_IN_NET`, шум тянется последним; при `DOPPLER_TRUTH = "telemetry"` (этап 18) истинная скорость реальных трасс - `Track.vel_log` | есть |
 | `filters/models.py` | Модели CV, CA, CT на общем векторе `[x, y, z, vx, vy, vz, ax, ay, w]` | есть |
 | `filters/imm.py` | IMM и прогноз на 1..H; с одной моделью - фильтр Калмана; `run(with_cov=True)` - ковариация прогноза по горизонтали (этап 6б); `run(with_models=True)` - прогнозы отдельных моделей (этап 6в); `run(mode_logit=...)` и `extra_models` - встраивание сети (этап 6г); доплер (этап 12) - `FilterRun.vr_innov` при `rt.vr`, дообновление моделей по радиальной скорости (`radial`) при `DOPPLER_IN_IMM`; СКО доплера в фильтре - `FILTER_SIGMA_VR` (None - как у РЛС, этап 18) | есть |
 | `filters/extrapolation.py` | Линейная экстраполяция по последним отметкам | есть |
 | `eval/metrics.py` | Единые метрики и динамическая ошибка; метрики обнаружения начала маневра (этап 5): средняя точность, порог по вероятности ложной тревоги, события, опережение, ложные тревоги, отклик; строб (этап 6б): конформный квантиль, расстояние Махаланобиса, покрытие и размер | есть |
 | `viz/filter_plots.py` | Рисунки этапа 1 и общие рисунки сравнения методов; `METHOD_COLORS` - постоянные цвета основных методов, `method_color` - цвет любого метода (варианты не из таблицы получают свои цвета, не совпадающие с основными) | есть |
-| `run_stage1.py` | Этап 1 | есть |
 | `data/windows.py` | Нарезка окон (единственное место), система курса, `apply_correction`, `onset_labels` (метка начала маневра, этап 5), `held` (последняя полученная отметка при пропуске, этап 6а), `model_offsets`, `sequence_arrays`, `sequence_chunks` (данные схем варианта Б, этап 6в); группа признаков «доплер» (радиальная скорость и её невязка, этап 12) при `DOPPLER_IN_NET`; `turn_class` - класс будущего движения прямо / влево / вправо по истине (цель гипотез этапа 14) | есть |
 | `training/dataset.py` | Сборка окон с кэшем и подписью параметров, `Normalizer`; `build(run_kwargs=...)`, `WindowSet.subset_tracks`, `concat` (этапы 4в, 6г), `subset` - окна по маске (этап 16); при доплере в подписи ключ `DOPPLER` (без него подпись прежняя) | есть |
 | `training/trainer.py` | Обучение, ранняя остановка, overfit one batch (dropout отключается, `clip` - ограничение градиента для сетей внутри фильтра), `predict`; `loss_fn` - своя функция потерь (этап 5), по умолчанию MSE; `params["skip_nonfinite"]` - пропуск шага при nan/inf в loss или градиенте (только Б2, Б3 этапа 6в, по умолчанию выключен); `weighted_mse` - MSE с весом примера в последнем столбце цели (этап 13) | есть |
@@ -86,51 +65,18 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
 | `models/mamba.py` | Mamba на чистом PyTorch (селективное сканирование циклом по времени), `sequence()` для проверки причинности | есть |
 | `eval/compare.py` | Сравнение методов на одинаковых парах, разделы сводки, рисунки; `mask_forecast`; разбивка по источнику трасс для merged (`source_of` по префиксу `synth` в `flight_id`, `ade_by_source`, раздел `source_section`) - только в тексте сводки и JSON, не в рисунках | есть |
 | `viz/train_plots.py` | Кривые loss | есть |
-| `run_stage2.py` | Этап 2, ключи `--smoke` и `--rebuild` | есть |
-| `run_stage3.py` | Этап 3: все корректоры и модели без IMM; `--smoke`, `--rebuild`, `--only GRU,Mamba` | есть |
-| `training/experiment.py` | Один эксперимент: нормализация, overfit, обучение, прогноз на val, веса, кривая loss. Общий для `run_stage3*.py` и следующих; `weights=(train, val)` - веса примеров (этап 13), без них всё как раньше | есть |
-| `run_stage3_window.py` | Дополнение этапа 3: те же модели на окнах 20 / 60 / 100 обзоров, оценка на общих обзорах; `--windows`, `--only`, `--smoke` | есть |
+| `training/experiment.py` | Один эксперимент: нормализация, overfit, обучение, прогноз на val, веса, кривая loss. Общий для `pipeline/runs.py` и этапа 5; `store`, `store_key` - хранилище моделей (готовая модель не обучается заново); `weights=(train, val)` - веса примеров (этап 13), без них всё как раньше | есть |
 | `tuning/search.py` | Генетический подбор (Optuna, NSGA-II): цель для IMM и для корректоров, бюджет попыток, `config_override`, `split_params` | есть |
-| `run_stage4.py` | Этап 4: `--phase imm / tune / final / all`, `--smoke`, `--only`, `--trials`, `--imm-trials` | есть |
 | `models/stack.py` | `StackCorrector`: стопка блоков GRU / LSTM / Mamba / Attention с остаточными связями (этап 4б) | есть |
 | `tuning/arch_search.py` | Геном архитектуры, две цели (ADE, время прогноза), важность групп признаков и типов блоков | есть |
-| `run_stage4b.py` | Этап 4б: `--phase search / final / all`, `--smoke`, `--trials`. Нужен `cache/stage4/imm_best.json` | есть |
-| `run_stage4_baselines.py` | Дополнение этапа 4: генетический подбор KF (`TUNE_KF_SPACE`) и перебор числа отметок CV (`TUNE_CV_POINTS`) с той же целью и бюджетом, что у IMM; без GPU | есть |
 | `models/multi.py` | `MultiHypGRU` - K гипотез поправки и логиты их вероятностей (этап 14), `semantic_loss` (гипотеза класса будущего движения), `wta_loss` (учится ближайшая гипотеза), `split` | есть |
 | `models/onset.py` | `OnsetGRU` - GRU с головами поправки и начала маневра (выход 2H + 1), `multitask_loss` (MSE + BCE) | есть |
 | `models/hybrids.py` | Вариант Б: `ModelWeightGRU` (сеть выбирает модель IMM), `NeuralKF` (фильтр Калмана CV на PyTorch с сетью в усилении или в шуме), `ModeGRU` (классификатор маневра, Б4), `WeightResidualGRU` (A + Б1), функции потерь | есть |
-| `run_stage6c.py` | Этап 6в: схемы гибридизации A, Б1, Б2, Б3 на одних обзорах, 3 seed; `--smoke` | есть |
-| `run_stage4c.py` | Этап 4в: размер сети (`SCALE_HIDDEN` x `SCALE_LAYERS`) и объём синтетики (`SCALE_SYNTH`, новые партии - поток `synth_extra`, окна в `cache/stage4c/`); `--smoke`, `--only` | есть |
-| `run_stage4d.py` | Этап 4г: повтор ГА-подбора IMM+GRU на синтетике `--synth` (по умолчанию x4, 0 - только реальные), итог на 3 seed; база подбора - `cache/stage4d/optuna.db` | есть |
-| `run_stage8.py` | Этап 8: сгенерированный test (поток `synth_test`, доля `SYNTH_TEST_SHARE`) и реальный test на весах итога этапа 4 (`artifacts/stage4/`, 3 seed), без переобучения; `--smoke` | есть |
-| `run_stage6d.py` | Этап 6г: схемы Б4 (сеть управляет переключением IMM), Б4 + A, A + Б1, Б5 (прогноз сети - режим IMM); `--smoke` | есть |
 | `filters/neural_mode.py` | `NeuralMode` - прогноз сети как режим IMM (схема Б5) | есть |
 | `data/augment.py` | Расширение реальных трасс train (этап 9): `radar_copy` (новые РЛС и шум по новому имени `<имя>~radarN`), `mirror` (x -> -x), `speed_scale` (горизонталь x f, только в пределах калибровки - `speed_scale_allowed`), `augment`; скорость по телеметрии (`vel_log`) копии преобразуется так же, как координаты | есть |
 | `filters/oracle.py` | Оракул (этап 11): `oracle_forecast` - прогноз CV или CT по точному состоянию из трёх последних точек истины (только прошлое; точно на прямой и окружности), `best_of` - задним числом лучший прогноз в каждом обзоре | есть |
-| `run_stage19.py` | Этап 19: архитектуры этапа 4 на основных данных обучения (реальные + расширение + синтетика), рядом они же без расширения (веса этапа 4) и IMM+GRU (этапы 4, 9); схемы 6в, 6г на тех же данных - `run_stage6c.py --aug`, `run_stage6d.py --aug` (каталоги `stage6c_aug`, `stage6d_aug`); расширение - `run_stage9.augmented`; `--smoke` | есть |
-| `run_stage18.py` | Этап 18: доплер по скорости GPS-приёмника из лога (`DOPPLER_TRUTH = "telemetry"`): согласие скорости по телеметрии и по координатам, выбор `FILTER_SIGMA_VR` по ADE IMM на val, переобучение итоговой модели (3 seed, ансамбль), рядом итоговая этапа 12 на обоих доплерах; окна - `cache/stage18/`; `--smoke` | есть |
-| `run_stage17.py` | Этап 17: доплер в сочетаниях с итоговой моделью (веса этапа 12, «доплер в IMM», «+ все расширения») - ансамбль, синтетика x4 (`run_stage4c.extra_synth`), семантические гипотезы (функции `run_stage14`), строб (функции `run_stage6b`), пропуски отметок (`run_stage6a.plot_levels`); окна с доплером - из кэша этапа 12 и `cache/stage17/`; `--smoke` | есть |
-| `run_stage16.py` | Этап 16: модульная схема - распознаватель «в горизонте - поворот» (`ModeGRU`, BCE) и эксперты «прямая» / «поворот» (IMM+GRU на своих окнах, `dataset.subset`); жёсткое переключение, мягкая смесь, верный эксперт задним числом; один корректор - веса этапов 4, 9; два набора обучения, 3 seed; веса распознавателя - `artifacts/stage16/recognizer_<набор>_seed_N.pt`; `--smoke` | есть |
-| `run_stage15.py` | Этап 15: ансамбль - среднее поправок сохранённых сетей (3 seed GRU этапа 4, 3 seed «+ все расширения» этапа 9, 6 GRU, 4 архитектуры, 4 x 3); без обучения; разброс участников как оценка ошибки; `--smoke` | есть |
-| `run_stage14.py` | Этап 14: несколько вариантов прогноза - семантические (прямо / влево / вправо) и свободные гипотезы, прогнозы «наиболее вероятная», «смесь», «лучшая из 3 задним числом»; один прогноз - веса этапов 4, 9; веер гипотез на рисунке; веса - `artifacts/stage14/<вариант>_<набор>_seed_N.pt`; `--smoke` | есть |
-| `run_stage13.py` | Этап 13: вес ошибкам на входе в маневр - важные примеры («вход» или «около начала маневра», по разметке истины) с весом `ENTRY_WEIGHTS`, IMM+GRU на двух наборах обучения, 3 seed; вес 1 - веса этапов 4, 9; рисунок размена ADE и входа; `--smoke` | есть |
-| `run_stage12.py` | Этап 12: доплер - варианты без доплера (веса этапов 4, 9), доплер в IMM, в сети, в IMM и в сети; KF и IMM с доплером; IMM+GRU на двух наборах обучения, 3 seed; реакция вероятности CT на начало маневра; `--smoke` | есть |
-| `run_stage11.py` | Этап 11: оракулы рядом с CV, KF, IMM (штатный шум и почти без шума) и IMM+GRU на сохранённых весах этапов 4, 9, 10 (без обучения); разложение ошибки гибрида на шум, метод, непредсказуемость; `--smoke` | есть |
-| `run_stage10.py` | Этап 10: вклад шума отметок - СКО РЛС x `NOISE_SCALES`; CV, KF, IMM и IMM+GRU на двух наборах обучения (этап 4, «+ все расширения»), обученный при штатном шуме и переобученный на каждом уровне; окна при штатном шуме - из кэшей этапов 4 и 9; `--smoke` | есть |
-| `run_stage9.py` | Этап 9: IMM+GRU этапа 4 на наборах обучения «этап 4», «+ каждое расширение», «+ все», «только реальные», «только реальные + все»; 3 seed, окна копий - `cache/stage9/`; `--smoke` | есть |
-| `run_stage6b.py` | Этап 6б: строб - четыре варианта области прогноза (IMM хи-квадрат, IMM конформный, гибрид круг и эллипс IMM), калибровка на val; `--smoke` | есть |
-| `run_stage6a.py` | Этап 6а: пропуски отметок, P_d из `PD_LEVELS`; CV, KF, IMM и сети этапа 4, обученные при P_d = 1 и при каждом P_d; `--smoke`. Окна train - `cache/stage6a/train_w20_pdNNN.npz` | есть |
-| `run_stage5.py` | Этап 5: прогноз начала маневра, сравнение с обнаружителями по IMM, GRU с головой и без; `--smoke`. Нужны `imm_best.json` и `best_params.json` этапа 4 | есть |
-| `predict.py` | Итоговая программа (этап 7): `--log` (лог полёта, отметки моделируются, ошибки по GPS) или `--radar` (файл отметок t, range_m, az_deg, el_deg); гибрид IMM+GRU этапа 4 и IMM; выход - `results/predict/<имя>/forecast.csv`, `report.html` (карта с ползунком по обзорам), `summary.txt`; `--save-radar`, `--pd`, `--smoke` | есть |
 
-**Кэш этапа 0** (`cache/stage0/`) - вход следующих этапов:
-- `tracks_real.pkl` - все куски, включая sim и excluded: фильтровать по
-  `splits.json`;
-- `tracks_synth_train.pkl`, `tracks_synth_analysis.pkl`;
-- `tracks_synth_eval.pkl` - только в merged: {"val": [...], "test": [...]}
-  сгенерированных траекторий;
-- `splits.json` - {лог: выборка};
-- `calibration.json` - `Limits`.
+**Кэш этапа 0** (`cache/<прогон>/stage0/`) - вход следующих этапов: `tracks_real.pkl` (все куски, фильтровать по `splits.json`; у реальных `vel_log` - скорость по телеметрии), `tracks_synth_train.pkl`, `tracks_synth_analysis.pkl`, `tracks_synth_eval.pkl` (только merged), `tracks_aug.pkl` ({вид: копии реальных train}), `splits.json`, `calibration.json`.
 
 ## Соответствие имён
 
@@ -205,8 +151,8 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
   1. Модуль в `models/`: вход (B, W, F), выход (B, H, 2), последний слой
      инициализирован нулями.
   2. Регистрация в `models.CORRECTORS`.
-  3. Строка в `EXPERIMENTS` в `run_stage3.py`.
-  4. Смоук: `run_stage3.py --smoke --only <имя>`.
+  3. Строка в `EXPERIMENTS` в `run_stage2.py`.
+  4. Смоук: `run_stage2.py --smoke --case nodop --only <имя>`.
 
 - **Новый сценарий генератора:**
   1. Ветка в `make_plan`.
@@ -214,5 +160,6 @@ flight_logs/*.csv --> data/flight_logs.py: очистка, куски, ENU, пе
   3. Число - в `SYNTH_COUNT_TRAIN` и `SYNTH_COUNT_ANALYSIS`.
   4. Запустить этап 0: проверки пределов и распределений должны остаться PASS.
 - **Новый поток случайных чисел:** только в конец `config.RNG_STREAMS`.
+- **Новый случай доплера или гипотеза:** случай - в `common/cases.CASES` и `overrides`; гипотеза - в `pipeline/hypotheses.HYPS` (цель, голова в `models/heads.py`, потеря `spec_loss`).
 - **Новая проверка этапа:** `summary.check(имя, условие, подробности)` в
   `run_stageN.py`.

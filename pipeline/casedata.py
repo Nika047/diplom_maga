@@ -10,6 +10,7 @@
 """
 
 import pickle
+import re
 
 import numpy as np
 
@@ -23,11 +24,12 @@ from training import dataset
 
 class CaseData:
     def __init__(self, paths: RunPaths, sets: dict, case: str, imm: dict = None, sigma_vr: float = None,
-                 net_input: bool = True, window: int = config.WINDOW_SCANS, ks_window: int = None):
+                 net_input: bool = True, window: int = config.WINDOW_SCANS, ks_window: int = None, extra: dict = None):
         if case not in CASES:
             raise ValueError(case)
         self.paths, self.sets, self.case = paths, sets, case
         self.imm, self.sigma_vr, self.net_input, self.window = imm or {}, sigma_vr, net_input, window
+        self.extra = dict(extra or {})          # прочие подмены config (пропуски, шум, точность доплера - этап 9)
         self.ks_window = ks_window or window     # окно, по которому определены обзоры оценки (этап 3: общие для окон)
         self._built = {}
         self._ks = {}
@@ -35,8 +37,10 @@ class CaseData:
     def variant(self, **kw) -> "CaseData":
         """Тот же случай с другими параметрами (окно, доплер во входе сети, параметры IMM)."""
         args = dict(imm=self.imm, sigma_vr=self.sigma_vr, net_input=self.net_input, window=self.window,
-                    ks_window=self.ks_window)
+                    ks_window=self.ks_window, extra=self.extra)
         args.update(kw)
+        if "extra" in kw:
+            args["extra"] = {**self.extra, **kw["extra"]}
         return CaseData(self.paths, self.sets, self.case, **args)
 
     @property
@@ -45,7 +49,7 @@ class CaseData:
 
     def override(self, **extra) -> dict:
         net = self.net_input if self.doppler else False
-        return {**self.imm, **overrides(self.case, net, self.sigma_vr), **extra}
+        return {**self.imm, **overrides(self.case, net, self.sigma_vr), **self.extra, **extra}
 
     @property
     def cache_dir(self):
@@ -53,6 +57,7 @@ class CaseData:
 
     def windows(self, key: str, tracks: list) -> dataset.WindowSet:
         """Окна обучения (кэш на диске): key - имя набора, например "main"."""
+        key = re.sub(r"[^\w.-]+", "_", key)
         with config_override(self.override()):
             return dataset.load_or_build(f"{key}_w{self.window}_n{int(self.net_input)}", tracks, self.cache_dir,
                                          window=self.window)

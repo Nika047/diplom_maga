@@ -24,6 +24,20 @@ def compare_methods(reg: Registry, a: str, b: str, name: str = "val", n_boot: in
     return bootstrap.paired_difference(sa, ca, sb, cb, n_boot=n_boot or config.BOOTSTRAP_N, rng=make_rng("bootstrap"))
 
 
+def compare_across(reg_a: Registry, a: str, reg_b: Registry, b: str, name: str = "val", n_boot: int = None) -> dict:
+    """Разность ADE (a минус b) для методов из разных реестров (случаев) на одних и тех же полётах набора."""
+    import config
+
+    ka, sa, ca = reg_a.flights(a, name)
+    kb, sb, cb = reg_b.flights(b, name)
+    if ka != kb:
+        raise ValueError(f"Наборы полётов {a} и {b} на {name} не совпадают")
+    if not np.allclose(ca, cb):
+        # обзоры оценки у случаев одни (ks по случаю без доплера); расхождение числа пар недопустимо
+        raise ValueError(f"Числа пар {a} и {b} на {name} не совпадают")
+    return bootstrap.paired_difference(sa, ca, sb, cb, n_boot=n_boot or config.BOOTSTRAP_N, rng=make_rng("bootstrap"))
+
+
 def choose_base(reg: Registry, methods: list, name: str = "val", n_boot: int = None) -> dict:
     """{"best": лучший по ADE, "base": выбранная основа, "rows": [{method, ade, diff, lo, hi, ms, equal}]}."""
     ades = {m: reg.metric(m, name)[0] for m in methods}

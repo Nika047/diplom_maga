@@ -53,4 +53,7 @@ class RunPaths:
         return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
 
     def save_state(self, name: str, obj) -> None:
-        self._state(name).write_text(json.dumps(obj, ensure_ascii=False, indent=1, default=float), encoding="utf-8")
+        path = self._state(name)
+        tmp = path.with_suffix(".tmp")      # запись целиком: прерывание посреди записи не портит прежнее состояние
+        tmp.write_text(json.dumps(obj, ensure_ascii=False, indent=1, default=float), encoding="utf-8")
+        tmp.replace(path)
