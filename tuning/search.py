@@ -15,7 +15,6 @@
 Проверяется на этапе 4: бюджет одинаков для всех моделей, лучшее не хуже исходного.
 """
 
-import contextlib
 import time
 from pathlib import Path
 
@@ -24,6 +23,7 @@ import optuna
 import torch
 
 import config
+from common.cases import config_override  # noqa: F401  (используется этапами: from tuning.search import config_override)
 from common.logging_setup import get_logger
 from common.rng import make_rng
 from data.phases import PHASE_CODE
@@ -36,19 +36,6 @@ from training.trainer import predict, train
 IMM_KEYS = tuple(config.TUNE_IMM_SPACE) + ("IMM_P_STAY",)
 
 optuna.logging.set_verbosity(optuna.logging.WARNING)
-
-
-@contextlib.contextmanager
-def config_override(values: dict):
-    """Временная подмена значений config."""
-    old = {key: getattr(config, key) for key in values}
-    for key, val in values.items():
-        setattr(config, key, val)
-    try:
-        yield
-    finally:
-        for key, val in old.items():
-            setattr(config, key, val)
 
 
 def default_imm_params() -> dict:

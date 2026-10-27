@@ -8,6 +8,7 @@ val - без teacher forcing (у корректора его и нет: прог
 """
 
 import time
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -101,14 +102,26 @@ def overfit_one_batch(model: nn.Module, x: np.ndarray, y: np.ndarray, steps: int
     return first, last
 
 
+def _save_checkpoint(path: Path, model, opt, history, val0, best_val, best_state, bad, rng, finished: bool) -> None:
+    tmp = path.with_suffix(".tmp")
+    torch.save({"model": model.state_dict(), "opt": opt.state_dict(), "history": history, "val0": val0,
+                "best_val": best_val, "best_state": best_state, "bad": bad, "rng": rng.bit_generator.state,
+                "torch_rng": torch.get_rng_state(), "finished": finished}, tmp)
+    tmp.replace(path)   # запись целиком: прерывание посреди записи не портит прежний файл
+
+
 def train(model: nn.Module, x_tr, y_tr, x_val, y_val, params: dict, device: torch.device,
-          rng: np.random.Generator, quiet: bool = False, loss_fn=None) -> tuple:
+          rng: np.random.Generator, quiet: bool = False, loss_fn=None, ckpt_path: Path = None) -> tuple:
     """
     Возвращает (история по эпохам, лучшие веса). quiet - без строки на каждую эпоху
     (подбор). loss_fn(pred, y) - своя функция потерь, по умолчанию MSE.
     params["skip_nonfinite"] - пропускать шаг, если loss или градиент не конечны (сети внутри
     фильтра, этап 6в: один батч с расходящимся фильтром давал nan во всех весах до конца
     обучения). По умолчанию выключено, чтобы прежние этапы считались как раньше.
+    ckpt_path - файл контрольной точки (версия 2, остановка и продолжение): после каждой эпохи
+    пишутся веса, оптимизатор, история и состояние генераторов; если файл есть, обучение
+    продолжается с последней сохранённой эпохи. Без него (по умолчанию) всё как раньше.
+    Продолжение не совпадает с непрерывным обучением до бита: состояние генераторов CUDA не хранится.
     """
     log = get_logger()
     log_epoch = log.debug if quiet else log.info
@@ -119,7 +132,19 @@ def train(model: nn.Module, x_tr, y_tr, x_val, y_val, params: dict, device: torc
     skip_nonfinite = params.get("skip_nonfinite", False)
     val0 = mse(model, x_val, y_val, device, loss_fn=loss_fn)
     log_epoch("val loss до обучения (нулевой выход: у гибрида = IMM): %.4f", val0)
-    for epoch in range(1, params["epochs"] + 1):
+    finished = False
+    if ckpt_path is not None and Path(ckpt_path).exists():
+        ck = torch.load(ckpt_path, map_location="cpu", weights_only=False)
+        model.load_state_dict(ck["model"])
+        opt.load_state_dict(ck["opt"])
+        history, val0, best_val, best_state, bad = ck["history"], ck["val0"], ck["best_val"], ck["best_state"], ck["bad"]
+        rng.bit_generator.state = ck["rng"]
+        torch.set_rng_state(ck["torch_rng"])
+        finished = ck["finished"]
+        log.info("Продолжение обучения с эпохи %d (контрольная точка %s)", len(history) + 1, ckpt_path)
+    for epoch in range(len(history) + 1, params["epochs"] + 1):
+        if finished:
+            break
         model.train()
         t0 = time.time()
         total, n, skipped = 0.0, 0, 0
@@ -150,7 +175,11 @@ def train(model: nn.Module, x_tr, y_tr, x_val, y_val, params: dict, device: torc
             bad += 1
             if bad >= params["patience"]:
                 log_epoch("ранняя остановка: val не улучшался %d эпох", bad)
-                break
+                finished = True
+        if ckpt_path is not None:
+            _save_checkpoint(Path(ckpt_path), model, opt, history, val0, best_val, best_state, bad, rng, finished)
+        if finished:
+            break
     if best_state is not None:
         model.load_state_dict(best_state)
     return {"val_loss_initial": val0, "best_val_loss": best_val, "epochs": history}, best_state

@@ -370,12 +370,13 @@ def main() -> int:
         limits.omega_scale = float(np.clip(limits.omega_scale * target_w / measured_w, *config.OMEGA_SCALE_RANGE))
     lines.append(f"итоговый множитель заданной |w|: {limits.omega_scale:.3f}")
     summary.section("Калибровка |w| через измерение (пробная генерация)", lines)
+    counts = {s: n * config.SYNTH_FACTOR for s, n in config.SYNTH_COUNT_TRAIN.items()}
     if config.USE_HOLDOUT:
-        synth_train = generator.generate(config.SYNTH_COUNT_TRAIN, limits, make_rng("synth_train"), "synth")
+        synth_train = generator.generate(counts, limits, make_rng("synth_train"), "synth")
         synth_eval = {}
     else:
         pool_share = 1.0 - config.VAL_SHARE - config.TEST_SHARE
-        pool = generator.generate({s: int(round(n / pool_share)) for s, n in config.SYNTH_COUNT_TRAIN.items()},
+        pool = generator.generate({s: int(round(n / pool_share)) for s, n in counts.items()},
                                   limits, make_rng("synth_train"), "synth")
         parts = splits_mod.split_synth(pool, make_rng("synth_split"))
         synth_train, synth_eval = parts["train"], {k: parts[k] for k in ("val", "test")}

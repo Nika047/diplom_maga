@@ -19,20 +19,32 @@ from pathlib import Path
 DATA_VARIANT = os.environ.get("DIPLOM_DATA", "base")
 if DATA_VARIANT not in ("base", "merged"):
     raise ValueError(f"DIPLOM_DATA: ожидается base или merged, получено {DATA_VARIANT!r}")
-_SUFFIX = "" if DATA_VARIANT == "base" else "_merged"
 USE_HOLDOUT = DATA_VARIANT == "base"
 EVAL_SETS = ("val", "test", "holdout") if USE_HOLDOUT else ("val", "test")
 
+# Версия 2 (решение пользователя 26-27.10.2026): второй переключатель DIPLOM_SYNTH - во сколько раз
+# больше сгенерированных траекторий. base: больше только train (val и test те же реальные полёты);
+# merged: больше весь пул, и val / test тоже другие и больше. Порядок прогонов: base_x1, merged_x1,
+# затем base_x4, merged_x4.
+SYNTH_FACTOR = int(os.environ.get("DIPLOM_SYNTH", "1"))
+if SYNTH_FACTOR not in (1, 4):
+    raise ValueError(f"DIPLOM_SYNTH: ожидается 1 или 4, получено {SYNTH_FACTOR}")
+RUN_NAME = f"{DATA_VARIANT}_x{SYNTH_FACTOR}"
+
 # ============================================================================
-# Пути
+# Пути (версия 2): у каждого из четырёх прогонов свои каталоги <папка>/<RUN_NAME>/
 # ============================================================================
 
 PROJECT_DIR = Path(__file__).resolve().parent
 FLIGHT_LOGS_DIR = PROJECT_DIR / "flight_logs"
-LOG_DIR = PROJECT_DIR / f"log{_SUFFIX}"
-RESULTS_DIR = PROJECT_DIR / f"results{_SUFFIX}"
-CACHE_DIR = PROJECT_DIR / f"cache{_SUFFIX}"
-ARTIFACTS_DIR = PROJECT_DIR / f"artifacts{_SUFFIX}"
+LOG_DIR = PROJECT_DIR / "log" / RUN_NAME
+RESULTS_DIR = PROJECT_DIR / "results" / RUN_NAME
+CACHE_DIR = PROJECT_DIR / "cache" / RUN_NAME
+ARTIFACTS_DIR = PROJECT_DIR / "artifacts" / RUN_NAME
+# Хранилище обученных моделей: каждая модель (этап, случай, подпись, seed) - веса и метрики,
+# повторный запуск её не обучает (training/store.py). Не удалять: по нему воспроизводятся
+# эксперименты без повторного обучения.
+STORE_DIR = PROJECT_DIR / "model_store" / RUN_NAME
 
 # ============================================================================
 # Воспроизводимость
@@ -43,7 +55,7 @@ RANDOM_SEED = 42
 # Потоки случайных чисел порождаются из RANDOM_SEED в этом порядке.
 # Новые потоки добавлять только в конец, иначе изменятся все прежние.
 RNG_STREAMS = ("splits", "synth_train", "synth_analysis", "check_determinism", "synth_pilot", "radar",
-               "training", "synth_extra", "scale", "synth_test", "synth_split")
+               "training", "synth_extra", "scale", "synth_test", "synth_split", "bootstrap")
 
 # ============================================================================
 # Логи полётов: состав
@@ -362,6 +374,14 @@ HYB_SCALE_M = 100.0          # единица функции потерь, м
 # Этап 6г - схема Б4: добавка к логарифмам вероятностей моделей IMM = alpha * [log(1 - p), log p],
 # p - оценка сетью вероятности маневра; alpha выбирается по ADE на val (0 - ровно IMM).
 HYB_B4_ALPHAS = (0.25, 0.5, 1.0, 2.0, 4.0)
+
+# Версия 2: бутстреп по полётам (eval/bootstrap.py) и правило отбора гипотез. Отбор - по val:
+# гипотеза проходит, если 95% интервал разности ADE с основой лежит левее нуля.
+BOOTSTRAP_N = 2000
+BOOTSTRAP_LEVEL = 0.95
+# Замер времени отклика (eval/latency.py): повторы и прогрев, берётся медиана
+LATENCY_WARMUP = 5
+LATENCY_REPEATS = 30
 
 # ============================================================================
 # Проверки этапа 0

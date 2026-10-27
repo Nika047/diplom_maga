@@ -2,7 +2,7 @@
 Все этапы подряд для выбранного варианта данных (решение пользователя 23.10.2026: на варианте
 merged пересчитать все этапы).
 
-  .venv\\Scripts\\python.exe run_all.py --data merged
+  .venv\\Scripts\\python.exe run_all.py --data merged --synth 1
 
 Этапы идут в порядке зависимостей. Этап пропускается, если его сводка уже есть (повторный
 запуск продолжает с первого незавершённого; --force - запустить всё заново). Сводка с FAIL
@@ -10,7 +10,7 @@ merged пересчитать все этапы).
 нет (необработанное исключение), запуск останавливается: следующие этапы от него зависят.
 Подбор этапа 4 и 4г сам продолжает прерванные попытки (cache/.../optuna.db).
 
-Журнал каждого этапа - как обычно в log/ (log_merged/ для merged).
+Журнал каждого этапа - как обычно в log/<прогон>/, прогон = <base|merged>_x<1|4> (config.RUN_NAME).
 """
 
 import argparse
@@ -59,14 +59,15 @@ STAGES = [
 def main() -> int:
     parser = argparse.ArgumentParser(description="Все этапы подряд для варианта данных")
     parser.add_argument("--data", choices=("base", "merged"), required=True)
+    parser.add_argument("--synth", choices=("1", "4"), default="1", help="объём синтетики: x1 или x4 (DIPLOM_SYNTH)")
     parser.add_argument("--force", action="store_true", help="запускать этапы, даже если сводка уже есть")
     parser.add_argument("--from", dest="start", default="", help="начать с этого скрипта, например run_stage4c.py")
     args = parser.parse_args()
     # Свои строки - в UTF-8, как у этапов: при выводе в файл иначе кодировка системы, и файл
     # получался в двух кодировках (дома строки [готово] и [стоп] читались кракозябрами)
     sys.stdout.reconfigure(encoding="utf-8")
-    env = {**os.environ, "DIPLOM_DATA": args.data, "PYTHONIOENCODING": "utf-8"}
-    results = PROJECT_DIR / ("results" if args.data == "base" else "results_merged")
+    env = {**os.environ, "DIPLOM_DATA": args.data, "DIPLOM_SYNTH": args.synth, "PYTHONIOENCODING": "utf-8"}
+    results = PROJECT_DIR / "results" / f"{args.data}_x{args.synth}"
     started = not args.start
     for cmd, rel in STAGES:
         started = started or cmd.split()[0] == args.start
@@ -75,7 +76,7 @@ def main() -> int:
             print(f"[пропуск] {cmd}: {'до --from' if not started else 'сводка уже есть'}", flush=True)
             continue
         t0 = time.time()
-        print(f"[запуск] {cmd} (DIPLOM_DATA={args.data})", flush=True)
+        print(f"[запуск] {cmd} (DIPLOM_DATA={args.data}, DIPLOM_SYNTH={args.synth})", flush=True)
         code = subprocess.call([sys.executable, "-u", *cmd.split()], cwd=PROJECT_DIR, env=env)
         print(f"[готово] {cmd}: код {code}, {(time.time() - t0) / 60:.1f} мин", flush=True)
         if not summary.exists():
