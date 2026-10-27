@@ -8,7 +8,9 @@
    (config.DATA_VARIANT) генерируется пул того же состава, но больше в 1 / (1 - VAL_SHARE -
    TEST_SHARE) раз, и он делится на train / val / test в тех же долях, что реальные логи
    (data/splits.split_synth); val и test сохраняются в tracks_synth_eval.pkl.
-5. Проверки PASS / FAIL, кэш в cache/stage0/, рисунки и сводка в results/stage0/.
+5. Версия 2: расширение реальных треков train (переразметка РЛС, отражение, растяжение по скорости,
+   data/augment.py) - tracks_aug.pkl; скорость по телеметрии (Track.vel_log) и доплер - проверки.
+6. Проверки PASS / FAIL, кэш в cache/<прогон>/stage0/, рисунки и сводка в results/<прогон>/stage0/.
 
 Запуск: .venv\\Scripts\\python.exe run_stage0.py
 """
@@ -27,9 +29,10 @@ import numpy as np  # noqa: E402
 import config  # noqa: E402
 from common.logging_setup import setup_logging  # noqa: E402
 from common.rng import make_rng  # noqa: E402
-from data import flight_logs, generator, phases, splits as splits_mod  # noqa: E402
+from data import augment, flight_logs, generator, phases, splits as splits_mod  # noqa: E402
 from data.geo import geodetic_to_enu, local_step_m  # noqa: E402
 from data.track import Track  # noqa: E402
+from eval import data_checks  # noqa: E402
 from eval.checks import StageSummary  # noqa: E402
 from viz import map_html, plots  # noqa: E402
 
@@ -400,6 +403,26 @@ def main() -> int:
                       f"траекторий {len(ids)}, уникальных {len(set(ids))}")
     compare_distributions(real_train, synth_train, summary)
 
+    log.info("4а. Расширение реальных полётов train, скорость по телеметрии, доплер")
+    data_checks.check_augment(summary)
+    data_checks.check_velocity(summary, [tr for tr in real if tr.aircraft in config.USED_AIRCRAFT])
+    data_checks.check_doppler(summary, synth_analysis)
+    aug_kinds = {"radar": "переразметка РЛС", "mirror": "отражение", "speed": "растяжение по скорости"}
+    aug, aug_lines = {}, [f"реальные train: {len(real_train)} трасс, {hours(real_train):.1f} ч"]
+    for kind, title in aug_kinds.items():
+        aug[kind], skipped = augment.augment(real_train, kind, limits)
+        aug_lines.append(f"{title}: {len(aug[kind])} копий, {hours(aug[kind]):.1f} ч"
+                         + (f"; вне пределов калибровки и не взято {skipped} из "
+                            f"{len(real_train) * len(config.AUG_SPEED_FACTORS)}" if kind == "speed" else ""))
+    copies = [c for cs in aug.values() for c in cs]
+    train_logs = {tr.log_file for tr in real_train}
+    eval_ids = {tr.flight_id for tr in real if splits[tr.log_file] != "train"}
+    summary.check("Расширения - только из train, имена не совпадают с val и test",
+                  bool(copies) and not ({c.flight_id for c in copies} & eval_ids)
+                  and {c.log_file for c in copies} <= train_logs,
+                  f"копий {len(copies)}; логов не из train {len({c.log_file for c in copies} - train_logs)}")
+    summary.section("Расширение реальных полётов train", aug_lines)
+
     small = {name: 3 for name in config.SYNTH_SCENARIOS}
     h1 = tracks_hash(generator.generate(small, limits, make_rng("check_determinism"), "det"))
     h2 = tracks_hash(generator.generate(small, limits, make_rng("check_determinism"), "det"))
@@ -423,6 +446,8 @@ def main() -> int:
         pickle.dump(synth_train, fh)
     with open(CACHE / "tracks_synth_analysis.pkl", "wb") as fh:
         pickle.dump(synth_analysis, fh)
+    with open(CACHE / "tracks_aug.pkl", "wb") as fh:
+        pickle.dump(aug, fh)
     if synth_eval:
         with open(CACHE / "tracks_synth_eval.pkl", "wb") as fh:
             pickle.dump(synth_eval, fh)

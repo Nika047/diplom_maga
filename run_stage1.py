@@ -1,16 +1,21 @@
 """
-Этап 1: модель РЛС и классические методы.
+Этап 1 (версия 2): классические методы и подбор их параметров в каждом случае доплера.
 
-1. Проверки на подставных данных с известным ответом (метрики, модели движения,
-   линейная экстраполяция, пересчёт отметок).
-2. Отметки РЛС для реальных полётов val и синтетики анализа (кэш этапа 0).
-3. Линейная экстраполяция (CV), фильтр Калмана (одна CV), IMM (CV, CA, CT).
-4. Метрики по горизонтам и участкам, кривые динамической ошибки.
-5. Проверки PASS / FAIL, рисунки и сводка в results/stage1/, метрики в metrics.json.
+Для случая (без доплера / доплер по траектории / доплер по телеметрии, common/cases.py):
+  1. самопроверки на подставных данных с известным ответом (метрики, модели движения, бутстреп);
+  2. генетический подбор (Optuna, NSGA-II) параметров IMM по ADE на реальных трассах train (каждая
+     TUNE_IMM_TRACK_STEP-я); в случаях с доплером в геном входит доверие фильтра к доплеру
+     (FILTER_SIGMA_VR из DOPPLER_FILTER_SIGMAS);
+  3. тот же бюджет для фильтра Калмана (СКО шума ускорения, и доверие к доплеру); линейная
+     экстраполяция - полный перебор числа отметок;
+  4. итог на val и test (holdout): CV, KF, IMM с исходными и подобранными параметрами, на одних
+     обзорах; метрики, участки, динамическая ошибка, время шага фильтра.
 
-Тест (выборки test и holdout) здесь не используется - он для итогового сравнения.
+Результат для следующих этапов - состояние imm_<случай> (параметры IMM и доверие к доплеру) и записи
+реестра stage1/<метод>. Попытки подбора хранятся в cache/<прогон>/stage1/<случай>/optuna.db: прерванный
+запуск продолжается (та же команда). Нейросетей нет, GPU не нужен.
 
-Запуск: .venv\\Scripts\\python.exe run_stage1.py (после run_stage0.py)
+  .venv\\Scripts\\python.exe run_stage1.py [--case nodop|dop_traj|dop_tele|all] [--smoke]
 """
 
 import json
@@ -24,301 +29,180 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import numpy as np  # noqa: E402
 
 import config  # noqa: E402
-from common.logging_setup import setup_logging  # noqa: E402
-from data import splits as splits_mod  # noqa: E402
+from common import cases  # noqa: E402
+from common.cases import config_override  # noqa: E402
 from data.phases import PHASE_CODE  # noqa: E402
-from eval import metrics  # noqa: E402
-from eval.checks import StageSummary  # noqa: E402
-from eval.compare import ade_by_source, source_of, source_section  # noqa: E402
+from eval import metrics, selftests  # noqa: E402
+from eval.compare import compare  # noqa: E402
 from filters.extrapolation import cv_extrapolate  # noqa: E402
 from filters.imm import IMM  # noqa: E402
-from filters.models import CA, CT, CV, VX, VY, W, X, Y  # noqa: E402
-from radar.model import RadarTrack, converted_cov, observe, polar_to_enu, to_polar  # noqa: E402
-from viz import filter_plots  # noqa: E402
+from filters.models import X, Y  # noqa: E402
+from pipeline import evaluation, latency  # noqa: E402
+from pipeline.casedata import CaseData  # noqa: E402
+from pipeline.stage import Ctx, run_stage  # noqa: E402
+from radar.model import observe  # noqa: E402
+from tuning import search  # noqa: E402
+from viz.tuning_plots import plot_convergence  # noqa: E402
 
 STAGE = "stage1"
-OUT_DIR = config.RESULTS_DIR / STAGE
-CACHE0 = config.CACHE_DIR / "stage0"
-METHODS = ("CV", "KF", "IMM")
-VAL = "val (реальные)" if config.USE_HOLDOUT else "val"     # в merged val смешанный
-TURN_CODES = (PHASE_CODE["entry"], PHASE_CODE["turn"])
+SIGMAS = tuple(config.DOPPLER_FILTER_SIGMAS)
 
 
-# ============================================================================
-# 1. Подставные данные с известным ответом
-# ============================================================================
-
-def _fake_radar_track(truth: np.ndarray) -> RadarTrack:
-    k = len(truth)
-    return RadarTrack("test", np.arange(k) * config.SCAN_PERIOD, truth, np.zeros(3), np.zeros((k, 3)),
-                      truth.copy(), np.tile(np.eye(3), (k, 1, 1)), np.ones(k, bool),
-                      np.zeros(k, np.int8), [])
+def _ade(rts: list, forecasts: list) -> float:
+    return metrics.summarize(metrics.concat_pairs([metrics.forecast_pairs(rt, fc)
+                                                   for rt, fc in zip(rts, forecasts)]))["ade"]
 
 
-def self_tests(summary: StageSummary) -> None:
-    hz = config.HORIZON_SCANS
-    k = 40
-    truth = np.column_stack([np.arange(k) * 20.0, np.zeros(k), np.zeros(k)])
-    rt = _fake_radar_track(truth)
-    fc = np.zeros((k, hz, 3))
-    for h in range(1, hz + 1):
-        fc[: k - h, h - 1] = truth[h:] + np.array([3.0, 4.0, 0.0])
-    s = metrics.summarize(metrics.forecast_pairs(rt, fc))
-    summary.check("Метрики: известный ответ (ошибка 3, 4 м)",
-                  abs(s["ade"] - 5) < 1e-9 and abs(s["rmse"] - 5) < 1e-9 and abs(s["mae"] - 3.5) < 1e-9
-                  and abs(s["fde"] - 5) < 1e-9,
-                  f"ADE {s['ade']:.3f}, RMSE {s['rmse']:.3f}, MAE {s['mae']:.3f}, FDE {s['fde']:.3f} "
-                  f"(ожидалось 5, 5, 3.5, 5)")
-    for h in range(1, hz + 1):
-        fc[: k - h, h - 1] = truth[h:]
-    s = metrics.summarize(metrics.forecast_pairs(rt, fc))
-    summary.check("Метрики: точный прогноз", s["ade"] == 0 and abs(s["r2"] - 1) < 1e-12,
-                  f"ADE {s['ade']}, R2 {s['r2']}")
-
-    # Модели движения: CT на окружности, CV и CA на прямой - точный прогноз
-    v, w, t = 20.0, 0.1, config.SCAN_PERIOD
-    x = np.zeros(9)
-    x[VX], x[W] = v, w
-    model = CT()
-    for _ in range(10):
-        x = model.f(x, t)
-    th = w * 10 * t
-    exact = np.array([v / w * np.sin(th), v / w * (1 - np.cos(th))])
-    err_ct = float(np.linalg.norm(x[[X, Y]] - exact))
-    x = np.zeros(9)
-    x[VX], x[VY] = 10.0, -5.0
-    err_cv = float(np.linalg.norm(CV().f(x, 4.0)[[X, Y]] - [40.0, -20.0]))
-    x = np.zeros(9)
-    x[VX], x[6] = 10.0, 1.0
-    err_ca = float(abs(CA().f(x, 4.0)[X] - (40.0 + 0.5 * 16.0)))
-    summary.check("Модели движения: известный ответ", max(err_ct, err_cv, err_ca) < 1e-6,
-                  f"ошибка CT на окружности {err_ct:.2e} м, CV {err_cv:.2e} м, CA {err_ca:.2e} м")
-
-    # Линейная экстраполяция на прямой без шума
-    rt = _fake_radar_track(truth)
-    fc = cv_extrapolate(rt)
-    s = metrics.summarize(metrics.forecast_pairs(rt, fc))
-    summary.check("Линейная экстраполяция: прямая без шума", s["ade"] < 1e-6, f"ADE {s['ade']:.2e} м")
-
-    # Пересчёт отметок: туда-обратно точно; ковариация согласована с шумом (NEES около 3)
-    rng = np.random.default_rng(0)
-    rel = np.array([[2000.0, 1500.0, 300.0]])
-    polar = to_polar(rel)
-    back = float(np.abs(polar_to_enu(polar) - rel).max())
-    sig = np.array([config.RADAR_SIGMA_R, np.radians(config.RADAR_SIGMA_AZ_DEG),
-                    np.radians(config.RADAR_SIGMA_EL_DEG)])
-    noisy = polar + rng.standard_normal((20000, 3)) * sig
-    d = polar_to_enu(noisy) - rel
-    cov = converted_cov(noisy)
-    nees = np.einsum("ni,nij,nj->n", d, np.linalg.inv(cov), d)
-    summary.check("Пересчёт отметок: точность и NEES", back < 1e-6 and 2.85 <= nees.mean() <= 3.15,
-                  f"ошибка туда-обратно {back:.1e} м, средний NEES {nees.mean():.3f} (ожидалось около 3)")
-
-
-# ============================================================================
-# 2-4. Данные, методы, метрики
-# ============================================================================
-
-def load_stage0(log):
-    paths = [CACHE0 / name for name in ("tracks_real.pkl", "tracks_synth_analysis.pkl", "splits.json")]
-    missing = [str(p) for p in paths if not p.exists()]
-    if missing:
-        log.error("Нет кэша этапа 0: %s. Сначала запустить run_stage0.py", missing)
-        return None
-    with open(paths[0], "rb") as fh:
-        real = pickle.load(fh)
-    with open(paths[1], "rb") as fh:
-        synth = pickle.load(fh)
-    splits = splits_mod.load_splits(paths[2])
-    return real, synth, splits
-
-
-def check_radar(datasets: dict, summary: StageSummary) -> None:
-    res, nees = [], []
-    for rts in datasets.values():
-        for rt in rts:
-            true_polar = to_polar(rt.truth - rt.radar_pos)
-            r = rt.polar - true_polar
-            r[:, 1] = (r[:, 1] + np.pi) % (2 * np.pi) - np.pi
-            res.append(r)
-            d = rt.meas - rt.truth
-            nees.append(np.einsum("ni,nij,nj->n", d, np.linalg.inv(rt.meas_cov), d))
-    res = np.concatenate(res)
-    nees = np.concatenate(nees)
-    std = res.std(axis=0)
-    want = np.array([config.RADAR_SIGMA_R, np.radians(config.RADAR_SIGMA_AZ_DEG),
-                     np.radians(config.RADAR_SIGMA_EL_DEG)])
-    rel = np.abs(std / want - 1)
-    summary.check("РЛС: СКО шума равны заданным", (rel <= 0.05).all(),
-                  f"дальность {std[0]:.2f} м (задано {want[0]}), азимут {np.degrees(std[1]):.3f} град "
-                  f"({config.RADAR_SIGMA_AZ_DEG}), угол места {np.degrees(std[2]):.3f} град "
-                  f"({config.RADAR_SIGMA_EL_DEG}); отметок {len(res)}")
-    summary.check("РЛС: ковариация пересчитанных отметок согласована", 2.85 <= nees.mean() <= 3.15,
-                  f"средний NEES {nees.mean():.3f} (ожидалось около 3)")
-
-
-def run_methods(rts: list, log, label: str) -> dict:
-    out = {}
-    kf, imm = IMM(("CV",), mu0=(1.0,)), IMM()
-    t0 = time.time()
-    out["CV"] = {"forecast": [cv_extrapolate(rt) for rt in rts], "runs": None}
-    t1 = time.time()
-    kf_runs = [kf.run(rt) for rt in rts]
-    t2 = time.time()
-    imm_runs = [imm.run(rt) for rt in rts]
-    t3 = time.time()
-    out["KF"] = {"forecast": [r.forecast for r in kf_runs], "runs": kf_runs}
-    out["IMM"] = {"forecast": [r.forecast for r in imm_runs], "runs": imm_runs}
-    n_scans = sum(len(rt.t) for rt in rts)
-    log.info("%s: %d трасс, %d обзоров; время CV %.1f с, KF %.1f с, IMM %.1f с", label, len(rts),
-             n_scans, t1 - t0, t2 - t1, t3 - t2)
-    out["_timing"] = {"scans": n_scans, "CV": t1 - t0, "KF": t2 - t1, "IMM": t3 - t2}
-    return out
-
-
-def evaluate(rts: list, res: dict, label: str, summary: StageSummary) -> dict:
-    report = {}
-    lines = [f"{'метод':5s} {'MAE':>7s} {'RMSE':>7s} {'ADE':>7s} {'FDE':>7s} {'R2':>6s} {'ADE 3D':>7s} "
-             f"{'пар':>7s}  ADE по горизонтам 1..{config.HORIZON_SCANS}, м"]
-    phase_lines = [f"{'метод':5s} " + " ".join(f"{p:>9s}" for p in config.PHASES if p != "slow")]
-    for method in METHODS:
-        pairs = metrics.concat_pairs([metrics.forecast_pairs(rt, fc)
-                                      for rt, fc in zip(rts, res[method]["forecast"])])
+def imm_objective(rts: list, case: str):
+    def objective(trial):
+        values = {key: trial.suggest_float(key, lo, hi, log=True) for key, (lo, hi) in config.TUNE_IMM_SPACE.items()}
+        values["IMM_P_STAY"] = trial.suggest_float("IMM_P_STAY", *config.TUNE_IMM_P_STAY)
+        sigma = trial.suggest_categorical("FILTER_SIGMA_VR", list(SIGMAS)) if case != "nodop" else None
+        with config_override({**cases.overrides(case, False, sigma), **values}):
+            imm = IMM()
+            pairs = metrics.concat_pairs([metrics.forecast_pairs(rt, imm.run(rt).forecast) for rt in rts])
         s = metrics.summarize(pairs)
-        by_h = metrics.ade_by_horizon(pairs)
-        by_phase = {p: metrics.summarize(metrics.select(pairs, pairs["phase"] == code))["ade"]
-                    for p, code in PHASE_CODE.items()}
-        maneuver = metrics.summarize(metrics.select(pairs, np.isin(pairs["phase"], TURN_CODES)))
-        report[method] = {"overall": s, "by_horizon": by_h.tolist(), "by_phase": by_phase,
-                          "maneuver": maneuver, "pairs": pairs}
-        lines.append(f"{method:5s} {s['mae']:7.1f} {s['rmse']:7.1f} {s['ade']:7.1f} {s['fde']:7.1f} "
-                     f"{s['r2']:6.3f} {s['ade_3d']:7.1f} {s['n']:7d}  " + " ".join(f"{v:6.1f}" for v in by_h))
-        phase_lines.append(f"{method:5s} " + " ".join(f"{by_phase[p]:9.1f}" for p in config.PHASES if p != "slow"))
-    summary.section(f"{label}: метрики по горизонтали (м), все горизонты", lines)
-    summary.section(f"{label}: ADE по участкам в момент прогноза (м)", phase_lines)
-
-    dyn_lines = [f"{'метод':5s} {'h':>2s} {'прямая':>7s} {'пик':>7s} {'при m':>6s} {'площадь':>8s} "
-                 f"{'восст., обз.':>12s} {'маневров':>9s}"]
-    curves, levels = {}, {}
-    for h in (1, config.HORIZON_SCANS):
-        for method in METHODS:
-            ms, curve, counts = metrics.dynamic_curve(rts, res[method]["forecast"], h)
-            level = metrics.straight_level(report[method]["pairs"], h)
-            st = metrics.dynamic_stats(ms, curve, level)
-            curves[(method, h)] = (ms, curve, counts)
-            levels[(method, h)] = level
-            report[method][f"dynamic_h{h}"] = {"level": level, **st, "curve": np.nan_to_num(curve).tolist()}
-            dyn_lines.append(f"{method:5s} {h:2d} {level:7.1f} {st['peak']:7.1f} {st['peak_m']:6.0f} "
-                             f"{st['area']:8.1f} {st['recovery']:12.0f} {int(counts[ms == 0][0]):9d}")
-    summary.section(f"{label}: динамическая ошибка (м; m - обзоров от начала маневра)", dyn_lines)
-    source_section(summary, label, {m: [{"ade": report[m]["overall"]["ade"], **{
-        f"ade_{s}": v for s, v in ade_by_source(rts, res[m]["forecast"]).items()}}] for m in METHODS})
-    report["_curves"], report["_levels"] = curves, levels
-    return report
+        turn = metrics.summarize(metrics.select(pairs, np.isin(pairs["phase"], (PHASE_CODE["entry"], PHASE_CODE["turn"]))))
+        trial.set_user_attr("maneuver_ade", turn["ade"])
+        return s["ade"]
+    return objective
 
 
-def check_methods(datasets: dict, results: dict, reports: dict, summary: StageSummary) -> None:
-    # Фильтр Калмана на прямых сглаживает шум отметок
-    rts = [rt for rt in datasets["синтетика"] if rt.flight_id.startswith("synthA_straight")]
-    runs = [r for rt, r in zip(datasets["синтетика"], results["синтетика"]["KF"]["runs"])
-            if rt.flight_id.startswith("synthA_straight")]
+def kf_objective(rts: list, case: str):
+    def objective(trial):
+        values = {key: trial.suggest_float(key, lo, hi, log=True) for key, (lo, hi) in config.TUNE_KF_SPACE.items()}
+        sigma = trial.suggest_categorical("FILTER_SIGMA_VR", list(SIGMAS)) if case != "nodop" else None
+        with config_override({**cases.overrides(case, False, sigma), **values}):
+            kf = IMM(("CV",), mu0=(1.0,))
+            return _ade(rts, [kf.run(rt).forecast for rt in rts])
+    return objective
+
+
+def tune(ctx: Ctx, name: str, objective, default: dict, n_trials: int):
+    study = search.open_study(f"{name}{'_smoke' if ctx.smoke else ''}", ctx.cache_dir / "optuna.db")
+    t0 = time.time()
+    search.run_budget(study, objective, n_trials, default)
+    done = search.completed(study)
+    ctx.summary.check(f"{name.upper()}: бюджет выполнен", len(done) >= n_trials, f"завершено {len(done)} из {n_trials}")
+    best, base = study.best_trial, search.default_trial(study)
+    ctx.summary.check(f"{name.upper()}: лучшее не хуже исходного", best.value <= base.value + 1e-9,
+                      f"ADE train: исходные {base.value:.2f} м, лучшие {best.value:.2f} м")
+    return best, base, done, time.time() - t0
+
+
+def check_methods(ctx: Ctx, imm_params: dict, sigma_vr, analysis: list) -> None:
+    """Проверки на синтетике анализа: KF сглаживает шум на прямых, у IMM на маневре растёт вероятность CT."""
+    over = {**cases.overrides(ctx.case, False, sigma_vr), **imm_params}
+    with config_override(over):
+        rts = [observe(tr) for tr in analysis]
+        kf_runs, imm_runs = [IMM(("CV",), mu0=(1.0,)).run(rt) for rt in rts], [IMM().run(rt) for rt in rts]
     est_err, meas_err = [], []
-    for rt, run in zip(rts, runs):
+    for rt, run in zip(rts, kf_runs):
+        if not rt.flight_id.startswith("synthA_straight"):
+            continue
         k = np.arange(config.WARMUP_SCANS, len(rt.t))
         est_err.append(np.linalg.norm(run.est[k][:, [X, Y]] - rt.truth[k, :2], axis=1))
         meas_err.append(np.linalg.norm(rt.meas[k, :2] - rt.truth[k, :2], axis=1))
     e, m = np.concatenate(est_err), np.concatenate(meas_err)
-    summary.check("Фильтр Калмана на прямой точнее отметок", e.mean() < m.mean(),
-                  f"средняя горизонтальная ошибка оценки {e.mean():.1f} м против отметок {m.mean():.1f} м")
-
-    # IMM на маневре переключается на CT
+    ctx.summary.check("Фильтр Калмана на прямой точнее отметок", e.mean() < m.mean(),
+                      f"средняя горизонтальная ошибка оценки {e.mean():.1f} м против отметок {m.mean():.1f} м")
     i_ct = config.IMM_MODELS.index("CT")
     mu_turn, mu_straight = [], []
-    for rt, run in zip(datasets["синтетика"], results["синтетика"]["IMM"]["runs"]):
+    for rt, run in zip(rts, imm_runs):
         ok = ~np.isnan(run.mu[:, i_ct])
         mu_turn.append(run.mu[ok & (rt.phase == PHASE_CODE["turn"]), i_ct])
         mu_straight.append(run.mu[ok & (rt.phase == PHASE_CODE["straight"]), i_ct])
     a, b = np.concatenate(mu_turn).mean(), np.concatenate(mu_straight).mean()
-    summary.check("IMM: на маневре растёт вероятность CT", a > b + 0.2,
-                  f"средняя вероятность CT на маневре {a:.2f}, на прямой {b:.2f}")
+    ctx.summary.check("IMM: на маневре растёт вероятность CT", a > b + 0.2,
+                      f"средняя вероятность CT на маневре {a:.2f}, на прямой {b:.2f}")
 
-    for label, report in reports.items():
-        imm, kf = report["IMM"]["maneuver"]["ade"], report["KF"]["maneuver"]["ade"]
-        summary.check(f"{label}: IMM на маневрах точнее фильтра Калмана", imm < kf,
-                      f"ADE на входе и маневре: IMM {imm:.1f} м, KF {kf:.1f} м")
 
-    # Кривая динамической ошибки ловит маневр: пик после начала заметно выше уровня прямой
-    dyn = reports["синтетика"]["KF"][f"dynamic_h{config.HORIZON_SCANS}"]
-    summary.check("Кривая динамической ошибки видит маневр",
-                  dyn["peak"] > 1.5 * dyn["level"] and 0 <= dyn["peak_m"] <= 10,
-                  f"KF, h={config.HORIZON_SCANS}: пик {dyn['peak']:.1f} м на m={dyn['peak_m']:.0f} "
-                  f"при уровне прямой {dyn['level']:.1f} м")
+def run_case(ctx: Ctx) -> bool:
+    st, case, summary, log = ctx.st, ctx.case, ctx.summary, ctx.log
+    selftests.filters_selftest(summary)
+    selftests.bootstrap_selftest(summary)
+    sets = ctx.sets
+    t0 = time.time()
+
+    # --- 1. подбор на реальных трассах train ---
+    tracks = sets["train"][::config.TUNE_IMM_TRACK_STEP]
+    with config_override(cases.overrides(case, False, None)):
+        rts = [observe(tr) for tr in tracks]
+    log.info("Подбор: %d трасс train, %d обзоров, бюджет IMM / KF %d попыток", len(rts), sum(len(r.t) for r in rts),
+             st.imm_trials)
+    sigma0 = {"FILTER_SIGMA_VR": config.RADAR_SIGMA_VR} if case != "nodop" else {}
+    imm_best, imm_base, imm_done, imm_s = tune(ctx, "imm", imm_objective(rts, case),
+                                               {**search.default_imm_params(), **sigma0}, st.imm_trials)
+    kf_best, kf_base, kf_done, kf_s = tune(ctx, "kf", kf_objective(rts, case),
+                                           {**{k: getattr(config, k) for k in config.TUNE_KF_SPACE}, **sigma0},
+                                           st.imm_trials)
+    imm_params = {k: imm_best.params[k] for k in search.IMM_KEYS}
+    sigma_vr = imm_best.params.get("FILTER_SIGMA_VR")
+    kf_params = {k: kf_best.params[k] for k in config.TUNE_KF_SPACE}
+    kf_sigma = kf_best.params.get("FILTER_SIGMA_VR")
+
+    cv_ade = {n: _ade(rts, [cv_extrapolate(rt, n_points=n) for rt in rts]) for n in config.TUNE_CV_POINTS}
+    cv_best = min(cv_ade, key=cv_ade.get)
+    summary.check("CV: лучшее не хуже исходного", cv_ade[cv_best] <= cv_ade[config.CV_LS_POINTS] + 1e-9,
+                  f"ADE train: {config.CV_LS_POINTS} отметок {cv_ade[config.CV_LS_POINTS]:.2f} м, "
+                  f"{cv_best} отметок {cv_ade[cv_best]:.2f} м")
+    summary.section("Подбор на train (ADE, м)", [
+        f"трасс {len(rts)}, попыток IMM {len(imm_done)} ({imm_s:.0f} с), KF {len(kf_done)} ({kf_s:.0f} с)",
+        f"IMM: исходные {imm_base.value:.2f} -> лучшие {imm_best.value:.2f} ({imm_best.value / imm_base.value - 1:+.1%}), "
+        f"на маневре {imm_best.user_attrs.get('maneuver_ade', float('nan')):.1f} м; "
+        f"{ {k: round(v, 4) for k, v in imm_best.params.items()} }",
+        f"KF: исходные {kf_base.value:.2f} -> лучшие {kf_best.value:.2f} ({kf_best.value / kf_base.value - 1:+.1%}); "
+        f"{ {k: round(v, 4) for k, v in kf_best.params.items()} }",
+        "CV: " + ", ".join(f"{n} отм. {v:.2f}" for n, v in list(cv_ade.items())[::6]) + f"; лучшее - {cv_best}",
+    ])
+    plot_convergence({"IMM": [t.value for t in imm_done], "KF": [t.value for t in kf_done]},
+                     ctx.out_dir / "convergence.png", f"Генетический подбор IMM и KF: {cases.CASE_TITLES[case]}")
+    ctx.save_state("imm", {"params": imm_params, "sigma_vr": sigma_vr, "ade_train": imm_best.value,
+                           "ade_train_default": imm_base.value})
+    ctx.save_state("classic", {"kf": kf_params, "kf_sigma_vr": kf_sigma, "cv_points": cv_best})
+
+    # --- 2. итог на val, test (holdout) ---
+    cd = CaseData(ctx.paths, sets, case, imm=imm_params, sigma_vr=sigma_vr)
+    imm_ms = latency.imm_ms_per_scan(cd, "val")
+    for name in config.EVAL_SETS:
+        _, rts_e, _ = cd.eval(name)
+        fcs = evaluation.classic_forecasts(cd, name, imm_default=search.default_imm_params())
+        fcs = {"CV": cd.mask(name, [cv_extrapolate(rt, n_points=cv_best) for rt in rts_e]), "KF (исходный)": fcs["KF"],
+               "IMM (исходный)": fcs["IMM (исходный)"], "IMM": fcs["IMM"],
+               "CV (исходный)": cd.mask(name, [cv_extrapolate(rt) for rt in rts_e])}
+        with config_override({**cd.override(), **kf_params, **cases.overrides(case, False, kf_sigma)}):
+            kf = IMM(("CV",), mu0=(1.0,))
+            fcs["KF"] = cd.mask(name, [kf.run(rt).forecast for rt in rts_e])
+        order = ["CV (исходный)", "CV", "KF (исходный)", "KF", "IMM (исходный)", "IMM"]
+        fcs = {m: fcs[m] for m in order}
+        for method, fc in fcs.items():
+            ctx.registry.set_report(f"{STAGE}/{method}", 0, name, evaluation.report(cd, name, fc),
+                                    {"imm_ms": imm_ms, "total_cpu_ms": imm_ms})
+        lines = [f"{'метод':16s} {'ADE':>6s} {'FDE':>6s} {'R2':>6s} {'прямая':>7s} {'вход':>7s} {'маневр':>7s}"]
+        for method in order:
+            r = ctx.registry.report(f"{STAGE}/{method}", name)
+            lines.append(f"{method:16s} {r['ade']:6.1f} {r['fde']:6.1f} {r['r2']:6.3f} {r['straight']:7.1f} "
+                         f"{r['entry']:7.1f} {r['turn']:7.1f}")
+        summary.section(f"{name}: итог (м), одни и те же обзоры", lines)
+        compare(rts_e, {m: fcs[m] for m in ("CV", "KF", "IMM")}, summary, f"{name}", ctx.out_dir, name)
+    ctx.registry.flush()
+
+    val = {m: ctx.registry.report(f"{STAGE}/{m}", "val") for m in ("KF", "IMM")}
+    summary.check("val: IMM на входе в маневр и маневре точнее фильтра Калмана", val["IMM"]["turn"] < val["KF"]["turn"],
+                  f"ADE на маневре: IMM {val['IMM']['turn']:.1f} м, KF {val['KF']['turn']:.1f} м")
+    with open(ctx.paths.stage0 / "tracks_synth_analysis.pkl", "rb") as fh:
+        analysis = pickle.load(fh)
+    check_methods(ctx, imm_params, sigma_vr, analysis if not ctx.smoke else analysis[::5])
+    summary.section("Время шага фильтра (процессор, мс на обзор)", [f"IMM случая «{cases.CASE_TITLES[case]}»: {imm_ms:.2f}"])
+    clean = {m: {n: {k: v for k, v in ctx.registry.report(f"{STAGE}/{m}", n).items() if k != "flights"}
+                 for n in config.EVAL_SETS}
+             for m in ("CV (исходный)", "CV", "KF (исходный)", "KF", "IMM (исходный)", "IMM")}
+    (ctx.out_dir / "metrics.json").write_text(json.dumps(clean, ensure_ascii=False, indent=1), encoding="utf-8")
+    return True
 
 
 def main() -> int:
-    log = setup_logging(STAGE)
-    summary = StageSummary("Этап 1: модель РЛС и классические методы")
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-
-    log.info("1. Проверки на подставных данных")
-    self_tests(summary)
-
-    log.info("2. Данные и отметки РЛС")
-    loaded = load_stage0(log)
-    if loaded is None:
-        summary.check("Кэш этапа 0 найден", False, "запустить run_stage0.py")
-        summary.write(OUT_DIR / "summary.txt")
-        return 1
-    real, synth, splits = loaded
-    val = splits_mod.load_sets(CACHE0)["val"]     # в варианте merged - вместе со сгенерированными
-    datasets = {VAL: [observe(tr) for tr in val],
-                "синтетика": [observe(tr) for tr in synth]}
-    summary.section("Данные", [f"{name}: {len(rts)} трасс, {sum(len(rt.t) for rt in rts)} обзоров, "
-                               f"{sum(len(rt.onsets) for rt in rts)} маневров" for name, rts in datasets.items()]
-                    + [f"РЛС: СКО дальности {config.RADAR_SIGMA_R} м, азимута {config.RADAR_SIGMA_AZ_DEG} град, "
-                       f"угла места {config.RADAR_SIGMA_EL_DEG} град, период {config.SCAN_PERIOD} с, "
-                       f"вероятность обнаружения {config.RADAR_PD}, расстояние {config.RADAR_DIST_RANGE} м"])
-    check_radar(datasets, summary)
-
-    log.info("3. Методы")
-    results = {name: run_methods(rts, log, name) for name, rts in datasets.items()}
-    summary.section("Время работы (рабочий ПК)", [
-        f"{name}: {r['_timing']['scans']} обзоров; CV {r['_timing']['CV']:.1f} с, KF {r['_timing']['KF']:.1f} с, "
-        f"IMM {r['_timing']['IMM']:.1f} с" for name, r in results.items()])
-
-    log.info("4. Метрики")
-    reports = {name: evaluate(datasets[name], results[name], name, summary) for name in datasets}
-    check_methods(datasets, results, reports, summary)
-
-    log.info("5. Рисунки")
-    for name, tag in (("синтетика", "synth"), (VAL, "val")):
-        rep = reports[name]
-        filter_plots.plot_dynamic_curves(rep["_curves"], rep["_levels"], OUT_DIR / f"dynamic_error_{tag}.png",
-                                         f"Динамическая ошибка: {name}")
-        filter_plots.plot_by_horizon({m: rep[m]["by_horizon"] for m in METHODS},
-                                     OUT_DIR / f"ade_by_horizon_{tag}.png", f"Ошибка по горизонтам: {name}")
-        filter_plots.plot_by_phase({m: rep[m]["by_phase"] for m in METHODS},
-                                   OUT_DIR / f"ade_by_phase_{tag}.png", f"Ошибка по участкам: {name}")
-    rts_s = datasets["синтетика"]
-    for scenario in ("zigzag", "loiter"):
-        i = next(i for i, rt in enumerate(rts_s) if rt.flight_id.startswith(f"synthA_{scenario}"))
-        filter_plots.plot_track_filters(rts_s[i], results["синтетика"]["IMM"]["runs"][i],
-                                        OUT_DIR / f"imm_example_{scenario}.png",
-                                        f"IMM на синтетике ({rts_s[i].flight_id})")
-    rts_v = datasets[VAL]
-    i = int(np.argmax([len(rt.onsets) if source_of(rt) == "real" else -1 for rt in rts_v]))
-    rt = rts_v[i]
-    k_mid = rt.onsets[len(rt.onsets) // 2]
-    filter_plots.plot_track_filters(rt, results[VAL]["IMM"]["runs"][i],
-                                    OUT_DIR / "imm_example_val.png",
-                                    f"IMM на реальном полёте ({rt.flight_id}), 3 минуты вокруг маневра",
-                                    k_range=(max(0, k_mid - 45), min(len(rt.t), k_mid + 45)))
-
-    clean = {name: {m: {k: v for k, v in rep[m].items() if k != "pairs"} for m in METHODS}
-             for name, rep in reports.items()}
-    (OUT_DIR / "metrics.json").write_text(json.dumps(clean, ensure_ascii=False, indent=1), encoding="utf-8")
-    summary.write(OUT_DIR / "summary.txt")
-    return 0 if summary.all_passed else 1
+    return run_stage(STAGE, "Этап 1: классические методы и подбор IMM", run_case)
 
 
 if __name__ == "__main__":
