@@ -15,6 +15,7 @@
 весов всё как раньше.
 """
 
+import re
 import time
 from pathlib import Path
 
@@ -31,7 +32,8 @@ from viz import train_plots
 
 
 def slug(label: str) -> str:
-    return label.replace("+", "_").replace(" ", "_").replace("(", "").replace(")", "")
+    """Имя файла по подписи: без символов, недопустимых в Windows (двоеточие, косая черта, звёздочка и т. д.)."""
+    return re.sub(r"[^\w.,-]+", "_", label.replace("+", "_")).strip("_")
 
 
 def run_experiment(label: str, corrector: str, mode: str, ws_tr, ws_val, params: dict, device,

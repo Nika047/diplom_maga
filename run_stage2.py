@@ -48,10 +48,6 @@ def add_args(parser) -> None:
     parser.add_argument("--trials", type=int, default=None, help="бюджет подбора на модель")
 
 
-def casedata_for(ctx: Ctx, net_input: bool):
-    return ctx.casedata(net_input=net_input)
-
-
 def phase_tune(ctx: Ctx, experiments: list, n_trials: int, data: dict) -> bool:
     st, summary, log = ctx.st, ctx.summary, ctx.log
     state = ctx.state("corr", {})
@@ -144,7 +140,9 @@ def phase_final(ctx: Ctx, experiments: list, tracks_tr: list) -> bool:
 def run_case(ctx: Ctx) -> bool:
     st, args = ctx.st, ctx.args
     only = {s.strip() for s in args.only.split(",") if s.strip()}
-    experiments = [e for e in EXPERIMENTS if not only or e[1] in only]
+    # смоук на процессоре: LSTM и Mamba без выбора --only слишком медленны (код у всех моделей общий)
+    quick = ("GRU", "Transformer") if ctx.smoke and not only else None
+    experiments = [e for e in EXPERIMENTS if (not only or e[1] in only) and (quick is None or e[1] in quick)]
     tracks_tr = pdata.train_tracks(ctx.sets)
     cd = ctx.casedata(net_input=True)
     selftests.window_selftest(ctx.summary, ctx.sets["val"], cd)

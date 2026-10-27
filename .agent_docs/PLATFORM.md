@@ -180,9 +180,12 @@ $P = (Get-Location).Path
 Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{ CommandLine = "cmd /c `"cd /d $P && .venv\Scripts\python.exe -u run_all.py --data base --synth 1 >> run_all_base_x1.out 2>&1`"" }
 ```
 
+**Прогоны запускать по очереди и не нагружать ПК другими задачами:** время отклика сети - цель подбора и метрика сравнения, оно
+измеряется, а не считается; при загруженном процессоре или видеокарте замер искажается (в смоуке на рабочем ПК при
+параллельном расчёте первая попытка показала 306 мс вместо 0,2).
+
 То же для остальных прогонов: `--data merged --synth 1`, `--data base --synth 4`, `--data merged --synth 4` (и
-имя файла `run_all_<прогон>.out`). Прогоны делят GPU и друг другу не мешают (каталоги раздельные), но по очереди
-быстрее.
+имя файла `run_all_<прогон>.out`). Каталоги прогонов раздельные, но параллельный запуск искажает замеры времени.
 
 **Остановка и продолжение.** Остановить (прерванное обучение сети сохранило последнюю эпоху, прерванный подбор -
 завершённые попытки):
@@ -200,7 +203,7 @@ Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -match 'run_all\.p
 
 ```powershell
 .venv\Scripts\python.exe -u run_stage2.py --case nodop        # DIPLOM_DATA / DIPLOM_SYNTH - переменные окружения
-.venv\Scripts\python.exe -u run_all.py --data base --synth 1 --from run_stage5.py   # с этапа 5
+.venv\Scripts\python.exe -u run_all.py --data base --synth 1 --from run_stage5.py --force   # заново с этапа 5 и дальше (готовые сети берутся из хранилища)
 .venv\Scripts\python.exe -u run_all.py --data base --synth 1 --case nodop           # только один случай доплера
 ```
 
