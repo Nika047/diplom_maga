@@ -388,8 +388,9 @@ HYP_TUNE_TRIALS = 12
 ENSEMBLE_MAX = 6
 ENSEMBLE_TOL = 0.01
 # Замер времени отклика (eval/latency.py): повторы и прогрев, берётся медиана
-LATENCY_WARMUP = 5
-LATENCY_REPEATS = 30
+LATENCY_WARMUP = 20
+LATENCY_REPEATS = 50
+LATENCY_BLOCKS = 3        # наименьшая из медиан блоков: выбросы от загрузки процессора отсекаются
 
 # ============================================================================
 # Проверки этапа 0

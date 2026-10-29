@@ -19,17 +19,31 @@ def _sync(device: torch.device) -> None:
 
 def median_ms(fn, device: torch.device = torch.device("cpu"), warmup: int = config.LATENCY_WARMUP,
               repeats: int = config.LATENCY_REPEATS) -> float:
-    """Медиана времени одного вызова fn() в миллисекундах (с прогревом и синхронизацией GPU)."""
-    for _ in range(warmup):
-        fn()
-    _sync(device)
-    times = []
-    for _ in range(repeats):
-        t0 = time.perf_counter()
-        fn()
+    """
+    Время одного вызова fn() в миллисекундах: наименьшая из LATENCY_BLOCKS медиан по блокам повторов (с прогревом
+    и синхронизацией GPU). На процессоре замер идёт в одном потоке: прогон по одной трассе не распараллеливается.
+    Причина: на прогоне base_x1 две сети одной архитектуры дали 0,51 и 0,80 мс на процессоре (замеры по медиане 30
+    повторов); влияние числа потоков не проверялось, разброс отсекается наименьшей из медиан блоков.
+    """
+    threads = torch.get_num_threads()
+    if device.type == "cpu":
+        torch.set_num_threads(1)
+    try:
+        for _ in range(warmup):
+            fn()
         _sync(device)
-        times.append((time.perf_counter() - t0) * 1e3)
-    return statistics.median(times)
+        blocks = []
+        for _ in range(config.LATENCY_BLOCKS):
+            times = []
+            for _ in range(repeats):
+                t0 = time.perf_counter()
+                fn()
+                _sync(device)
+                times.append((time.perf_counter() - t0) * 1e3)
+            blocks.append(statistics.median(times))
+        return min(blocks)
+    finally:
+        torch.set_num_threads(threads)
 
 
 def net_ms(model: torch.nn.Module, n_features: int, window: int, device: torch.device,

@@ -19,11 +19,14 @@ from pipeline.casedata import CaseData
 def imm_ms_per_scan(cd: CaseData, name: str = "val") -> float:
     """Время шага IMM в случае cd (с доплером дороже), мс на обзор, процессор."""
     rt = max(cd.eval(name)[1], key=lambda r: len(r.t))
+    best = float("inf")
     with config_override(cd.override()):
         imm = IMM()
-        t0 = time.perf_counter()
-        imm.run(rt)
-        return (time.perf_counter() - t0) / len(rt.t) * 1e3
+        for _ in range(3):          # наименьшее из трёх прогонов: выбросы от загрузки процессора отсекаются
+            t0 = time.perf_counter()
+            imm.run(rt)
+            best = min(best, (time.perf_counter() - t0) / len(rt.t) * 1e3)
+    return best
 
 
 def response_times(imm_ms: float, model: torch.nn.Module = None, n_features: int = 0,
