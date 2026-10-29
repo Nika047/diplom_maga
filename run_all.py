@@ -26,6 +26,9 @@ import time
 from pathlib import Path
 
 PROJECT_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(PROJECT_DIR))
+
+from common import lock  # noqa: E402
 CASES = ("nodop", "dop_traj", "dop_tele")
 
 # (скрипт, зависит ли от случая)
@@ -62,6 +65,11 @@ def main() -> int:
     sys.stdout.reconfigure(encoding="utf-8")
     env = {**os.environ, "DIPLOM_DATA": args.data, "DIPLOM_SYNTH": args.synth, "PYTHONIOENCODING": "utf-8"}
     run = f"{args.data}_x{args.synth}"
+    held = lock.acquire(PROJECT_DIR / "cache" / run / ".run_all.lock")
+    if held is None:
+        print(f"[отказ] прогон {run} уже запущен другим процессом run_all.py; второй запуск испортил бы общие файлы. "
+              f"Остановка и список процессов - PLATFORM.md", flush=True)
+        return 3
     results_root = PROJECT_DIR / "results" / run
     results = results_root / ("_smoke" if args.smoke else "")
     cases = CASES if args.case == "all" else (args.case,)

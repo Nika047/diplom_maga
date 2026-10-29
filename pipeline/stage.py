@@ -17,6 +17,7 @@ from pathlib import Path
 import torch
 
 import config
+from common import lock
 from common.cases import CASES, CASE_TITLES
 from common.logging_setup import setup_logging
 from eval.checks import StageSummary
@@ -97,6 +98,11 @@ def run_stage(stage: str, title: str, run_case, needs_gpu: bool = False, add_arg
     sets = None
     code = 0
     for case in cases:
+        held = lock.acquire(paths.cache("state") / f".lock_{stage}_{case}")
+        if held is None:
+            print(f"[отказ] {stage} {case} уже выполняется другим процессом ({config.RUN_NAME}); второй запуск испортил бы общие "
+                  f"файлы", flush=True)
+            return 3
         log = setup_logging(f"{stage}_{case}{tag}")
         log.info("Прогон %s, случай: %s (%s), %s", config.RUN_NAME, case, CASE_TITLES[case],
                  "СМОУК" if args.smoke else "полный запуск")

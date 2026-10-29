@@ -44,10 +44,13 @@ class ModelStore:
     def save(self, stage: str, case: str, label: str, seed: int, payload: dict, meta: dict) -> Path:
         folder = self.folder(stage, case, label, seed)
         folder.mkdir(parents=True, exist_ok=True)
-        torch.save(payload, folder / "model.pt")
+        tmp = folder / "model.pt.tmp"
+        torch.save(payload, tmp)
+        tmp.replace(folder / "model.pt")        # запись целиком: прерывание не оставляет битый model.pt
         (folder / "ckpt.pt").unlink(missing_ok=True)
-        (folder / "meta.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1, default=float),
-                                          encoding="utf-8")
+        tmp_meta = folder / "meta.json.tmp"
+        tmp_meta.write_text(json.dumps(meta, ensure_ascii=False, indent=1, default=float), encoding="utf-8")
+        tmp_meta.replace(folder / "meta.json")      # meta.json - последним: признак готовности модели
         return folder
 
     def load(self, stage: str, case: str, label: str, seed: int) -> tuple:
