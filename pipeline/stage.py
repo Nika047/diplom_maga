@@ -9,6 +9,8 @@
 """
 
 import argparse
+import logging
+import os
 import sys
 import time
 from dataclasses import dataclass, field
@@ -121,7 +123,16 @@ def run_stage(stage: str, title: str, run_case, needs_gpu: bool = False, add_arg
         summary.section("Время", [f"{(time.time() - ctx.t0) / 60:.1f} мин на {device}"])
         summary.write(out / "summary.txt")
         code |= 0 if (ok is not False and summary.all_passed) else 1
-    return code
+    _finish(code)
+
+
+def _finish(code: int) -> None:
+    """Выход без разбора интерпретатора: на Windows с CUDA он иногда падал с кодом 3221226505 (0xC0000409) уже
+    после записи сводки (base_x1, этапы 2-3). Сводка, состояние, реестр и модели к этому моменту на диске."""
+    logging.shutdown()
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(code)
 
 
 def main_guard(fn) -> None:
