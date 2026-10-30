@@ -4,7 +4,8 @@
 Геном попытки (tuning/arch_search.py): стопка из 1..ARCH_MAX_BLOCKS блоков GRU / LSTM / Mamba / Attention,
 ширина, dropout, параметры обучения, отбор групп признаков окна (в случаях с доплером среди групп есть
 «доплер»). Цели NSGA-II: ADE на val и время прохода сети (мс на обзор). Итог - две архитектуры с фронта
-(лучшая по ADE и самая быстрая из не хуже лучшей больше чем на ARCH_NEAR_BEST): обучение по FINAL_SEEDS и
+(лучшая по ADE и самая быстрая из не хуже лучшей больше чем на ARCH_NEAR_BEST, если быстрее на FAST_MIN_GAIN):
+обучение по FINAL_SEEDS и
 оценка на val, test (holdout) рядом с IMM и IMM + GRU этапа 2.
 
   search - поиск, попытки в cache/<прогон>/stage4/<случай>/optuna.db (прерванный запуск продолжается);
@@ -28,7 +29,7 @@ from pipeline import evaluation  # noqa: E402
 from pipeline.runs import fit_and_eval  # noqa: E402
 from pipeline.stage import Ctx, run_stage  # noqa: E402
 from pipeline.tables import method_table  # noqa: E402
-from tuning import arch_search, search  # noqa: E402
+from tuning import arch_search, corrector_search, search  # noqa: E402
 from viz.tuning_plots import plot_pareto  # noqa: E402
 
 STAGE = "stage4"
@@ -78,9 +79,7 @@ def phase_search(ctx: Ctx, cd, ws_tr, ws_val, n_trials: int) -> bool:
         f"{r['block']:10s} {r['ade_with']:10.2f} {r['ade_without']:9.2f} {r['share_in_top_blocks']:30.0%}"
         for r in rows_b])
 
-    best = min(done, key=lambda t: t.values[0])
-    near = [t for t in done if t.values[0] <= best.values[0] * (1 + config.ARCH_NEAR_BEST)]
-    fast = min(near, key=lambda t: t.values[1])
+    best, fast = corrector_search.pick(done)
     out = {"best": {"params": best.params, "ade_val": best.values[0], "ms": best.values[1]},
            "fast": {"params": fast.params, "ade_val": fast.values[0], "ms": fast.values[1]},
            "default": {"params": default.params, "ade_val": default.values[0], "ms": default.values[1]},

@@ -72,11 +72,13 @@ class CorrectorObjective:
         return float(np.linalg.norm(pred - y_val_m, axis=-1).mean()), ms
 
 
-def pick(trials: list, near: float = config.ARCH_NEAR_BEST) -> tuple:
-    """(лучшая по ADE, самая быстрая из не хуже лучшей больше чем на near) среди завершённых попыток."""
+def pick(trials: list, near: float = config.ARCH_NEAR_BEST, gain: float = config.FAST_MIN_GAIN) -> tuple:
+    """(лучшая по ADE, самая быстрая из не хуже лучшей больше чем на near) среди завершённых попыток.
+    Если самая быстрая выигрывает по времени меньше доли gain, вторая - та же лучшая."""
     best = min(trials, key=lambda t: t.values[0])
     close = [t for t in trials if t.values[0] <= best.values[0] * (1.0 + near)]
-    return best, min(close, key=lambda t: t.values[1])
+    fast = min(close, key=lambda t: t.values[1])
+    return best, (fast if fast.values[1] < best.values[1] * (1.0 - gain) else best)
 
 
 def split(params: dict) -> tuple:
