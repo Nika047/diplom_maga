@@ -1,0 +1,7 @@
+{
+ "kf": {
+  "FILTER_SIGMA_A_CV": 0.6751179142412167
+ },
+ "kf_sigma_vr": 0.5,
+ "cv_points": 16
+}

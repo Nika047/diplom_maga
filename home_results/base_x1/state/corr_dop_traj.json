@@ -1,0 +1,166 @@
+{
+ "IMM+LSTM": {
+  "best": {
+   "window": 20,
+   "net_input": true,
+   "hidden": 64,
+   "layers": 2,
+   "dropout": 0.24223204654921876,
+   "batch": 256,
+   "lr": 0.0005846187064070543,
+   "weight_decay": 3.0455368715396793e-06
+  },
+  "fast": {
+   "window": 20,
+   "net_input": true,
+   "hidden": 32,
+   "layers": 2,
+   "dropout": 0.0913841307520112,
+   "batch": 256,
+   "lr": 0.00033775361497450577,
+   "weight_decay": 3.0455368715396793e-06
+  },
+  "ade_val": 38.48704528808594,
+  "ms_best": 0.14160003047436476,
+  "ade_val_fast": 39.32757568359375,
+  "ms_fast": 0.12310000602155924,
+  "ade_val_default": 38.601463317871094,
+  "trials": 30
+ },
+ "IMM+GRU": {
+  "best": {
+   "window": 20,
+   "net_input": true,
+   "hidden": 128,
+   "layers": 3,
+   "dropout": 0.24223204654921876,
+   "batch": 512,
+   "lr": 0.0005070565734572889,
+   "weight_decay": 1.9170041589170666e-05
+  },
+  "fast": {
+   "window": 20,
+   "net_input": true,
+   "hidden": 64,
+   "layers": 2,
+   "dropout": 0.08764339456056544,
+   "batch": 1024,
+   "lr": 0.0005070565734572889,
+   "weight_decay": 2.720724805948669e-06
+  },
+  "ade_val": 38.31513595581055,
+  "ms_best": 0.2048499882221222,
+  "ade_val_fast": 39.39458465576172,
+  "ms_fast": 0.1210999907925725,
+  "ade_val_default": 39.11056900024414,
+  "trials": 30
+ },
+ "IMM+Transformer": {
+  "best": {
+   "window": 20,
+   "net_input": true,
+   "hidden": 32,
+   "layers": 2,
+   "dropout": 0.0913841307520112,
+   "batch": 256,
+   "lr": 0.0005070565734572889,
+   "weight_decay": 0.0005829384542994739
+  },
+  "fast": {
+   "window": 20,
+   "net_input": true,
+   "hidden": 64,
+   "layers": 2,
+   "dropout": 0.08428035290621423,
+   "batch": 1024,
+   "lr": 0.0005997904748501453,
+   "weight_decay": 0.0009133995846860973
+  },
+  "ade_val": 38.00371551513672,
+  "ms_best": 0.3781999694183469,
+  "ade_val_fast": 38.380611419677734,
+  "ms_fast": 0.3675500047393143,
+  "ade_val_default": 39.161014556884766,
+  "trials": 30
+ },
+ "IMM+Mamba": {
+  "best": {
+   "window": 20,
+   "net_input": true,
+   "hidden": 64,
+   "layers": 2,
+   "dropout": 0.1,
+   "batch": 512,
+   "lr": 0.001,
+   "weight_decay": 0.0001
+  },
+  "fast": {
+   "window": 20,
+   "net_input": true,
+   "hidden": 64,
+   "layers": 2,
+   "dropout": 0.1,
+   "batch": 512,
+   "lr": 0.001,
+   "weight_decay": 0.0001
+  },
+  "ade_val": 38.21940612792969,
+  "ms_best": 4.086249973624945,
+  "ade_val_fast": 38.21940612792969,
+  "ms_fast": 4.086249973624945,
+  "ade_val_default": 38.21940612792969,
+  "trials": 30
+ },
+ "GRU (без IMM)": {
+  "best": {
+   "window": 20,
+   "hidden": 64,
+   "layers": 2,
+   "dropout": 0.1,
+   "batch": 512,
+   "lr": 0.001,
+   "weight_decay": 0.0001
+  },
+  "fast": {
+   "window": 20,
+   "hidden": 32,
+   "layers": 2,
+   "dropout": 0.094306794322898,
+   "batch": 512,
+   "lr": 0.0023425035256627222,
+   "weight_decay": 0.0006741074265640696
+  },
+  "ade_val": 45.182533264160156,
+  "ms_best": 0.12245000107213855,
+  "ade_val_fast": 45.768802642822266,
+  "ms_fast": 0.12030004290863872,
+  "ade_val_default": 45.182533264160156,
+  "trials": 30
+ },
+ "Mamba (без IMM)": {
+  "best": {
+   "window": 20,
+   "hidden": 64,
+   "layers": 3,
+   "dropout": 0.07186856720009173,
+   "batch": 512,
+   "lr": 0.0003145616317558388,
+   "weight_decay": 0.0008123245085588687
+  },
+  "fast": {
+   "window": 20,
+   "hidden": 64,
+   "layers": 2,
+   "dropout": 0.10753971856328177,
+   "batch": 512,
+   "lr": 0.0006427162486934717,
+   "weight_decay": 1.5512259126484753e-06
+  },
+  "ade_val": 44.81634521484375,
+  "ms_best": 6.1790000181645155,
+  "ade_val_fast": 45.37503433227539,
+  "ms_fast": 4.093399969860911,
+  "ade_val_default": 47.002933502197266,
+  "trials": 30
+ }
+}
