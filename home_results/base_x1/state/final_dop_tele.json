@@ -1,0 +1,18 @@
+{
+ "method": "stage2/IMM+Transformer (быстрая)",
+ "base_method": "stage2/IMM+Transformer (быстрая)",
+ "spec": [],
+ "rows": [
+  {
+   "method": "stage2/IMM+Transformer (быстрая)",
+   "ade": 37.3970943042458,
+   "diff": 0.0,
+   "lo": 0.0,
+   "hi": 0.0,
+   "ms": 0.43218734571798684,
+   "equal": true
+  }
+ ],
+ "survivors": [],
+ "tuned": {}
+}

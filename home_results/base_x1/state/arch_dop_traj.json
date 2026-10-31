@@ -1,0 +1,146 @@
+{
+ "best": {
+  "params": {
+   "n_blocks": 3,
+   "block_0": "GRU",
+   "block_1": "GRU",
+   "block_2": "Mamba",
+   "hidden": 64,
+   "dropout": 0.29087538832936755,
+   "batch": 512,
+   "lr": 0.0006346305184913136,
+   "weight_decay": 5.719087535188475e-05,
+   "use_0": true,
+   "use_1": false,
+   "use_2": true,
+   "use_3": true,
+   "use_4": false,
+   "use_5": true,
+   "use_6": true,
+   "use_7": true
+  },
+  "ade_val": 38.155364990234375,
+  "ms": 2.336700039450079
+ },
+ "fast": {
+  "params": {
+   "n_blocks": 1,
+   "block_0": "LSTM",
+   "hidden": 128,
+   "dropout": 0.0869254358741304,
+   "batch": 512,
+   "lr": 0.0005892940096955161,
+   "weight_decay": 9.682636678036e-06,
+   "use_0": true,
+   "use_1": true,
+   "use_2": false,
+   "use_3": true,
+   "use_4": false,
+   "use_5": false,
+   "use_6": false,
+   "use_7": true
+  },
+  "ade_val": 39.21754837036133,
+  "ms": 0.20344997756183147
+ },
+ "default": {
+  "params": {
+   "n_blocks": 2,
+   "block_0": "GRU",
+   "block_1": "GRU",
+   "hidden": 64,
+   "dropout": 0.1,
+   "batch": 512,
+   "lr": 0.001,
+   "weight_decay": 0.0001,
+   "use_0": true,
+   "use_1": true,
+   "use_2": true,
+   "use_3": true,
+   "use_4": true,
+   "use_5": true,
+   "use_6": true,
+   "use_7": true
+  },
+  "ade_val": 38.895164489746094,
+  "ms": 0.24235004093497992
+ },
+ "importance": {
+  "groups": [
+   {
+    "group": "отметка",
+    "ade_with": 39.89483334725363,
+    "ade_without": 40.57668403957201,
+    "share_in_top": 0.6875
+   },
+   {
+    "group": "оценка IMM",
+    "ade_with": 40.10233158535428,
+    "ade_without": 40.08148401433771,
+    "share_in_top": 0.1875
+   },
+   {
+    "group": "скорость IMM",
+    "ade_with": 39.61727004581027,
+    "ade_without": 40.478352546691895,
+    "share_in_top": 0.75
+   },
+   {
+    "group": "невязка",
+    "ade_with": 39.84347025553385,
+    "ade_without": 41.00768280029297,
+    "share_in_top": 1.0
+   },
+   {
+    "group": "вероятности моделей",
+    "ade_with": 40.05160687186501,
+    "ade_without": 40.13884809282091,
+    "share_in_top": 0.4375
+   },
+   {
+    "group": "NIS моделей",
+    "ade_with": 40.106741714477536,
+    "ade_without": 40.06440493265788,
+    "share_in_top": 0.6875
+   },
+   {
+    "group": "дальность",
+    "ade_with": 39.79613949702336,
+    "ade_without": 40.23277049594455,
+    "share_in_top": 0.625
+   },
+   {
+    "group": "доплер",
+    "ade_with": 39.794565395433075,
+    "ade_without": 40.559210623464274,
+    "share_in_top": 0.875
+   }
+  ],
+  "blocks": [
+   {
+    "block": "GRU",
+    "ade_with": 39.925252577837774,
+    "ade_without": 40.38211559427196,
+    "share_in_top_blocks": 0.5
+   },
+   {
+    "block": "LSTM",
+    "ade_with": 40.08711543227687,
+    "ade_without": 40.093498392308014,
+    "share_in_top_blocks": 0.17391304347826086
+   },
+   {
+    "block": "Mamba",
+    "ade_with": 39.7371993229307,
+    "ade_without": 40.29196967330633,
+    "share_in_top_blocks": 0.21739130434782608
+   },
+   {
+    "block": "Attention",
+    "ade_with": 39.77200063069662,
+    "ade_without": 40.183439070178615,
+    "share_in_top_blocks": 0.10869565217391304
+   }
+  ]
+ }
+}

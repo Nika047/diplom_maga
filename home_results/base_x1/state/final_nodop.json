@@ -1,0 +1,18 @@
+{
+ "method": "stage2/IMM+Transformer",
+ "base_method": "stage2/IMM+Transformer",
+ "spec": [],
+ "rows": [
+  {
+   "method": "stage2/IMM+Transformer",
+   "ade": 41.04259588989461,
+   "diff": 0.0,
+   "lo": 0.0,
+   "hi": 0.0,
+   "ms": 0.3902751529397218,
+   "equal": true
+  }
+ ],
+ "survivors": [],
+ "tuned": {}
+}

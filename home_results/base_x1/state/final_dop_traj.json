@@ -1,0 +1,18 @@
+{
+ "method": "stage2/IMM+LSTM",
+ "base_method": "stage2/IMM+LSTM",
+ "spec": [],
+ "rows": [
+  {
+   "method": "stage2/IMM+LSTM",
+   "ade": 38.705661072828576,
+   "diff": 0.0,
+   "lo": 0.0,
+   "hi": 0.0,
+   "ms": 0.3803151779241981,
+   "equal": true
+  }
+ ],
+ "survivors": [],
+ "tuned": {}
+}
