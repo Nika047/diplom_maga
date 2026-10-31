@@ -147,7 +147,7 @@ class SpecNets:
             if k > 1:
                 idx = p["logits"].numpy().argmax(axis=1)
                 corr = hyps[np.arange(len(out)), idx]
-                aux["hyps"], aux["probs"] = hyps, torch.softmax(p["logits"], dim=1).numpy()
+                aux["hyps"], aux["probs"] = self.norm.y_inv(hyps), torch.softmax(p["logits"], dim=1).numpy()
             else:
                 corr = hyps[:, 0]
             if "onset" in spec:
